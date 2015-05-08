@@ -248,7 +248,8 @@ void* worker_thread(void *Param)
           //opkt.dts = av_rescale_q_rnd(pkt[id].dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
           //opkt.duration = av_rescale_q(pkt[id].duration, in_stream->time_base, out_stream->time_base);
 
-           poutFrame->pts = pktCount;
+           poutFrame->pts =  pktCount;
+           av_frame_get_best_effort_timestamp(poutFrame);
            ret = avcodec_encode_video2( oc->streams [pkt[id].stream_index]->codec, &opkt, poutFrame, &got_packet);
 
            //av_packet_rescale_ts(&opkt, in_stream->codec->time_base, oc->streams [pkt[id].stream_index]->codec->time_base);
@@ -260,15 +261,16 @@ void* worker_thread(void *Param)
            if (got_packet)
            {
 
-           if(oc->streams [pkt[id].stream_index]->codec->coded_frame->key_frame)
-           {
-                opkt.flags |= AV_PKT_FLAG_KEY;
-           }
+               if(oc->streams [pkt[id].stream_index]->codec->coded_frame->key_frame)
+               {
+                   opkt.flags |= AV_PKT_FLAG_KEY;
+               }
+
                if (opkt.pts != AV_NOPTS_VALUE)
-                   opkt.pts = av_rescale_q(pkt[id].pts, in_stream->time_base, out_stream->time_base);
+                   opkt.pts = av_rescale_q(pkt[id].pts, in_stream->time_base, enc_stream->time_base);
                if (opkt.dts != AV_NOPTS_VALUE)
-                  opkt.dts = av_rescale_q(pkt[id].dts,  in_stream->time_base, out_stream->time_base);
-           fprintf (stdout, "pts %ld, dts %ld  \n",opkt.pts, opkt.dts);
+                   opkt.dts = av_rescale_q(pkt[id].dts,  in_stream->time_base, enc_stream->time_base);
+             //  fprintf (stdout, "pts %ld, dts %ld  \n",opkt.pts, opkt.dts);
 
 #ifndef COPY_PACKETS
                ret = av_interleaved_write_frame(oc, &opkt);
@@ -278,7 +280,7 @@ void* worker_thread(void *Param)
                }
 #endif
                av_free_packet(&opkt);
-               fprintf(stderr, "write frame result: %s\n", av_err2str(ret));
+               //fprintf(stderr, "write frame result: %s\n", av_err2str(ret));
            }
 
 #ifdef COPY_PACKETS
