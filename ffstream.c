@@ -8,7 +8,25 @@
 
 #define MAX 1
 #define LIVE_STREAM 
-//#define COPY_PACKETS
+//#define COPY_VPACKETS
+#define COPY_APACKETS
+
+char *in_filename, *destination, *out_format ;
+char out_filename[64];
+AVOutputFormat *ofmt[MAX], *ofmte[MAX];
+AVFormatContext *ifmt_ctx[MAX], *ofmt_ctx[MAX], *ofmte_ctx[MAX];
+AVFormatContext *ovc;
+AVFormatContext *oac;
+AVCodecContext  *pVCodecCtx, *pACodecCtx;
+AVCodecContext  *pVencCtx, *pAencCtx;
+AVCodec         *pVCodec,  *pACodec;
+AVCodec         *pAenc, *pVenc;
+AVStream *audio_st, *video_st;
+
+int video_idx[MAX], audio_idx[MAX];
+AVPacket pkt[MAX];
+
+static int static_pts = 0;
 
 static void print_usage() 
 {
@@ -20,12 +38,133 @@ static void print_usage()
          );
 }
 
-AVOutputFormat *ofmt[MAX], *ofmte[MAX];
-AVFormatContext *ifmt_ctx[MAX], *ofmt_ctx[MAX], *ofmte_ctx[MAX];
-AVFormatContext *oc;
-int video_idx[MAX], audio_idx[MAX];
-AVPacket pkt[MAX];
-static int static_pts = 0;
+AVDictionary *fillupVDictionary (AVDictionary *dictionary)
+{
+    AVDictionary * dict = dictionary;
+    av_dict_set(&dict, "tune", "zerolatency", 0);
+    av_dict_set(&dict, "subq", "9", 0);
+    av_dict_set(&dict, "coder", "1", 0);
+    av_dict_set(&dict, "mbtree", "1", 0);
+    av_dict_set(&dict, "dct8x8", "1", 0);
+    av_dict_set(&dict, "partitions", "i8x8", 0);
+    return dict;
+}
+
+AVCodecContext *fillupVContexts (AVCodecContext *encCtx, int width, int height)
+{
+    AVCodecContext * pVencCtx = encCtx;
+    pVencCtx->codec_id = AV_CODEC_ID_H264;
+    pVencCtx->codec_type = AVMEDIA_TYPE_VIDEO;
+    pVencCtx->pix_fmt = AV_PIX_FMT_YUV420P;
+    pVencCtx->width = width;
+    pVencCtx->height = height;
+    pVencCtx->bit_rate = pVencCtx->width *pVencCtx->height * 4;
+    //pVencCtx->bit_rate = 90000;
+    //pVencCtx->time_base= tb;
+    pVencCtx->time_base.den = 25;
+    pVencCtx->time_base.num = 1;
+    pVencCtx->gop_size = pVencCtx->time_base.den;
+    pVencCtx->pix_fmt = AV_PIX_FMT_YUV420P;
+    pVencCtx->flags |= CODEC_FLAG_GLOBAL_HEADER | CODEC_FLAG_LOOP_FILTER | CODEC_FLAG_PASS1;
+    pVencCtx->keyint_min = pVencCtx->gop_size;
+    pVencCtx->scenechange_threshold = 40;
+    pVencCtx->sample_aspect_ratio = av_d2q(1, pVencCtx->width / pVencCtx->height);
+
+    pVencCtx->refs = 8;
+    pVencCtx->qblur = 0.5;
+    pVencCtx->qcompress = 0.6;
+    pVencCtx->b_quant_factor = 1.10;
+    pVencCtx->i_quant_factor = -1.10;
+    pVencCtx->qmax = 39;//51;
+    pVencCtx->qmin = 2;//10;
+    pVencCtx->max_qdiff = 2;
+    pVencCtx->me_range = 64;
+
+    pVencCtx->coder_type = FF_CODER_TYPE_VLC;
+    pVencCtx->thread_count = 1;//m_globalData.GetConfig().Video().VideoThreads();
+    pVencCtx->max_b_frames = 3; //???
+    pVencCtx->me_method = ME_FULL;
+    pVencCtx->flags |= CODEC_FLAG_GLOBAL_HEADER | CODEC_FLAG_LOOP_FILTER | CODEC_FLAG_PASS1;
+    return  pVencCtx;
+}
+
+int InitVideoDecoder (int i, int k )
+{
+    pVCodecCtx=ifmt_ctx[i]->streams[k]->codec;
+    pVCodec=avcodec_find_decoder(pVCodecCtx->codec_id);
+
+    if(pVCodec==NULL)
+        { fprintf(stderr,"Could not find needed video codec\n"); return -1; }
+
+    if( avcodec_open2(pVCodecCtx, pVCodec, NULL) < 0)
+        {  fprintf(stderr,"Can not open video codec \n");  return -1; }
+    else
+    {  fprintf(stdout,"Be used video codec #%d \n", (int)pVCodecCtx->codec_id ); }
+    AVStream *in_stream = ifmt_ctx[i]->streams[k];
+    AVRational timeBase = in_stream->codec->time_base;
+    //AVStream *out_stream = avformat_new_stream(ofmt_ctx[i], in_stream->codec->codec);
+    return 0;
+}
+
+int InitVideoEncoder (int i, int k)
+{
+    if (ifmt_ctx[i]->streams[k]->codec->codec_type == AVMEDIA_TYPE_VIDEO)
+    {
+    // Add the audio and video streams using the default format codecs and initialize the codecs.
+        if (ofmte[i]->video_codec != AV_CODEC_ID_NONE) {
+
+        pVenc = avcodec_find_encoder(AV_CODEC_ID_H264);
+
+        if(NULL == pVenc)
+        {
+            fprintf(stderr,"Could not find needed video encoder\n"); exit(1);
+        }
+
+            avformat_alloc_output_context2(&ovc, NULL, out_format, out_filename);
+            ovc->video_codec_id = AV_CODEC_ID_H264;
+            ovc->audio_codec_id = AV_CODEC_ID_NONE;
+            //context->bit_rate = m_videoOptions.bitrate * 1024;
+            ovc->bit_rate = 90000;
+            ovc->flags |= AVFMT_GLOBALHEADER;
+
+            pVencCtx= avcodec_alloc_context3(pVenc);
+
+            video_st = avformat_new_stream(ovc, pVenc);
+            if (!video_st) {
+                fprintf(stderr, "Could not allocate video stream\n");
+                exit(1);
+            }
+            video_st->id = ovc->nb_streams-1;
+            video_st->sample_aspect_ratio = av_d2q(1, 255);
+            video_st->pts_wrap_bits = 33;
+
+            pVencCtx = video_st->codec;
+            pVencCtx = fillupVContexts (pVencCtx, ifmt_ctx[i]->streams[k]->codec->width, ifmt_ctx[i]->streams[k]->codec->height);
+            AVDictionary* dict = NULL;
+            dict = fillupVDictionary (dict);
+
+            if (avcodec_open2(pVencCtx, pVenc, NULL) < 0) {
+                fprintf(stderr, "Could not open video codec\n");
+                exit(1);
+            }
+        }
+    }
+    return 0;
+}
+
+int encodeFrame(int new_pts, AVPacket *packet, AVFrame *frame )
+{
+}
+
+int rescaleTimeBase(AVPacket *out_pkt, AVPacket *base_pkt, AVRational in_tb, AVRational out_tb )
+{
+    if (out_pkt->pts != AV_NOPTS_VALUE)
+        out_pkt->pts = av_rescale_q(base_pkt->pts, in_tb,out_tb );
+    if (out_pkt->dts != AV_NOPTS_VALUE)
+        out_pkt->dts = av_rescale_q(base_pkt->dts, in_tb, out_tb);
+   //  fprintf (stdout, "pts %ld, dts %ld  \n",out_pkt.pts, out_pkt.dts);
+    return 0;
+}
 
 int nextPTS()
 {
@@ -108,10 +247,16 @@ void* worker_thread(void *Param)
             pkt[id].duration = av_rescale_q(pkt[id].duration, in_stream->time_base, out_stream->time_base);
             pkt[id].pos = -1;
             pkt[id].stream_index = idxa;
-#ifdef COPY_PACKETS
+
+#ifdef COPY_APACKETS
+#ifdef COPY_VPACKETS
            ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
 #else
-           ret = av_interleaved_write_frame(oc, &pkt[id]);
+           ret = av_interleaved_write_frame(ovc, &pkt[id]);
+#endif
+           //ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
+#else
+           ret = av_interleaved_write_frame(ovc, &pkt[id]);
 #endif
             if (ret < 0)
             {
@@ -130,7 +275,7 @@ void* worker_thread(void *Param)
         AVStream *in_stream = ifmt_ctx[id]->streams[pkt[id].stream_index];
         AVStream *out_stream = ofmt_ctx[id]->streams[pkt[id].stream_index];
         AVRational time_base = ifmt_ctx[id]->streams[idx]->time_base;
-        AVStream *enc_stream = oc->streams[pkt[id].stream_index];
+        AVStream *enc_stream = ovc->streams[pkt[id].stream_index];
 
         int ih = in_stream->codec->height;
         int iw = in_stream->codec->width;
@@ -207,52 +352,27 @@ void* worker_thread(void *Param)
         }
 
 #ifdef LIVE_STREAM    
-        int time = 1000;         
+        int time = 1000;
 #else
         int time = 1000 * 1000 * strtof(av_ts2timestr(pkt[id].duration, &time_base), NULL);
 #endif        
         usleep(time);
-        //fprintf(stdout, "PTS in %ld \n",pkt[id].pts);
-        //pkt[id].pts = av_rescale_q_rnd(pkt[id].pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-        //pkt[id].dts = av_rescale_q_rnd(pkt[id].dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-        //pkt[id].duration = av_rescale_q(pkt[id].duration, in_stream->time_base, out_stream->time_base);
-        //pkt[id].pos = -1;
-        //pkt[id].stream_index = idx;
 
         if(frameFinished)
         {
 
             AVPacket opkt ;
-            AVPacket vpkt ;
             opkt.data = NULL;
             opkt.size = 0;
             opkt.flags |= AV_PKT_FLAG_KEY;
             opkt.pts = opkt.dts = pktCount;
             av_init_packet(&opkt);
             opkt.pos = -1;
-            oc->streams [pkt[id].stream_index]->codec->coded_frame->pts = pktCount;
-
-           // opkt.stream_index  = idx;
-           //opkt.data          = (uint8_t *)out_buffer;
-           //opkt.size          = sizeof(AVPicture);
-           //opkt.pts = pkt.dts = pFrame->pts;
-           //opkt.pts =   pkt[id].pts ;
-           //opkt.dts = pkt[id].dts;
-           //opkt.duration = pkt[id].duration;
-
-
-          // enc_stream->time_base.den = 50;
-          // opkt.stream_index = idx;
-
-          //opkt.pts = av_rescale_q_rnd(pkt[id].pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-          //opkt.dts = av_rescale_q_rnd(pkt[id].dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-          //opkt.duration = av_rescale_q(pkt[id].duration, in_stream->time_base, out_stream->time_base);
+            ovc->streams [pkt[id].stream_index]->codec->coded_frame->pts = pktCount;
 
            poutFrame->pts =  pktCount;
            av_frame_get_best_effort_timestamp(poutFrame);
-           ret = avcodec_encode_video2( oc->streams [pkt[id].stream_index]->codec, &opkt, poutFrame, &got_packet);
-
-           //av_packet_rescale_ts(&opkt, in_stream->codec->time_base, oc->streams [pkt[id].stream_index]->codec->time_base);
+           ret = avcodec_encode_video2( ovc->streams [pkt[id].stream_index]->codec, &opkt, poutFrame, &got_packet);
 
            if (ret < 0)  {
                 fprintf(stderr, "Error encoding video frame: %s\n", av_err2str(ret));
@@ -260,72 +380,51 @@ void* worker_thread(void *Param)
 
            if (got_packet)
            {
-
-               if(oc->streams [pkt[id].stream_index]->codec->coded_frame->key_frame)
+               if(ovc->streams [pkt[id].stream_index]->codec->coded_frame->key_frame)
                {
                    opkt.flags |= AV_PKT_FLAG_KEY;
                }
+               rescaleTimeBase(&opkt, &pkt[id], in_stream->time_base,enc_stream->time_base );
 
-               if (opkt.pts != AV_NOPTS_VALUE)
-                   opkt.pts = av_rescale_q(pkt[id].pts, in_stream->time_base, enc_stream->time_base);
-               if (opkt.dts != AV_NOPTS_VALUE)
-                   opkt.dts = av_rescale_q(pkt[id].dts,  in_stream->time_base, enc_stream->time_base);
-             //  fprintf (stdout, "pts %ld, dts %ld  \n",opkt.pts, opkt.dts);
-
-#ifndef COPY_PACKETS
-               ret = av_interleaved_write_frame(oc, &opkt);
+#ifndef COPY_VPACKETS
+               ret = av_interleaved_write_frame(ovc, &opkt);
                if (ret < 0)
                {
-                 fprintf(stderr, "Error writing video frame: %s\n", av_err2str(ret));
+                   fprintf(stderr, "Error writing video frame: %s\n", av_err2str(ret));
                }
-#endif
                av_free_packet(&opkt);
-               //fprintf(stderr, "write frame result: %s\n", av_err2str(ret));
+#endif
            }
 
-#ifdef COPY_PACKETS
+#ifdef COPY_VPACKETS
            ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
+
 #else
 #endif
-
-           av_free_packet(&pkt[id]);
-           av_frame_free(&pinFrame);
-           av_frame_free(&pFrameRGB);
-           av_frame_free(&poutFrame);
-           av_free (bufferRGB);
-           av_free (in_buffer);
-           av_free (out_buffer);
-
        } // frameFinished
-        pktCount++;
 
-       // if (got_packet){
-       //     ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
-       // }
+        av_free_packet(&pkt[id]);
+        av_frame_free(&pinFrame);
+        av_frame_free(&pFrameRGB);
+        av_frame_free(&poutFrame);
+        av_free (bufferRGB);
+        av_free (in_buffer);
+        av_free (out_buffer);
+       pktCount++;
 
-       ret = 0;
-       if (ret < 0)
-       {
-           fprintf(stderr, "Error muxing packet thread %d\n", id);
-           break;
-       }
-
-       //av_free_packet(&pkt[id]);
+        if (ret < 0)
+        {
+            fprintf(stderr, "Error muxing packet thread %d\n", id);
+            fprintf(stderr, "write frame result: %s\n", av_err2str(ret));
+            break;
+        }
     }
 }
 
 int main(int argc, char **argv)
 {
-    char *in_filename, *destination, *out_format ;
-    char out_filename[64];
+
     int ret, i = 0;
-
-    AVCodecContext  *pVCodecCtx, *pACodecCtx;
-    AVCodecContext  *pVencCtx, *pAencCtx;
-    AVCodec         *pVCodec,  *pACodec;
-    AVCodec         *pAenc, *pVenc;
-    AVStream *audio_st, *video_st;
-
     static int video_stream_idx = -1, audio_stream_idx = -1;
 
     memset(ofmt, 0, sizeof(ofmt));
@@ -390,131 +489,33 @@ int main(int argc, char **argv)
         int res;
         for (k = 0; k < ifmt_ctx[i]->nb_streams; k++)
         {
+
             if (ifmt_ctx[i]->streams[k]->codec->codec_type == AVMEDIA_TYPE_VIDEO)
             {
-                // Add the audio and video streams using the default format codecs and initialize the codecs.
-                // video_st = NULL;
-                // audio_st = NULL;
                 if (ofmte[i]->video_codec != AV_CODEC_ID_NONE) {
-                    //video_st = add_stream(&ofmte_ctx[i], &pVenc, ofmte[i]->video_codec);
-                    pVenc = avcodec_find_encoder(AV_CODEC_ID_H264);
-                    if(NULL == pVenc)
-                        { fprintf(stderr,"Could not find needed video encoder\n"); exit(1); }
+                    InitVideoEncoder (i,k);
+              }
+             InitVideoDecoder(i,k);
 
-                    //oc = avformat_alloc_context();
-                    avformat_alloc_output_context2(&oc, NULL, out_format, out_filename);
-                    oc->video_codec_id = AV_CODEC_ID_H264;
-                    oc->audio_codec_id = AV_CODEC_ID_NONE;
-                      //context->bit_rate = m_videoOptions.bitrate * 1024;
-                    oc->bit_rate = 90000;
-                    oc->flags |= AVFMT_GLOBALHEADER;
+             AVStream *in_stream = ifmt_ctx[i]->streams[k];
+             AVRational timeBase = in_stream->codec->time_base;
+             AVStream *out_stream = avformat_new_stream(ofmt_ctx[i], in_stream->codec->codec);
 
-                    pVencCtx= avcodec_alloc_context3(pVenc);
+#ifdef COPY_VPACKETS
+             ret = avcodec_copy_context(out_stream->codec, in_stream->codec);
+             if (ret < 0)
+             {
+                 fprintf(stderr, "Failed to copy context from input to output stream codec context\n");
+                 goto end;
+             }
 
-                    video_st = avformat_new_stream(oc, pVenc);
-                    if (!video_st) {
-                        fprintf(stderr, "Could not allocate video stream\n");
-                       exit(1);
-                    }
-                    video_st->id = oc->nb_streams-1;
-                    video_st->sample_aspect_ratio = av_d2q(1, 255);
-                    video_st->pts_wrap_bits = 33;
-                    pVencCtx = video_st->codec;
-                    pVencCtx->codec_id = AV_CODEC_ID_H264;
-                    pVencCtx->codec_type = AVMEDIA_TYPE_VIDEO;
-                    pVencCtx->pix_fmt = AV_PIX_FMT_YUV420P;
-                    pVencCtx->width = 640;
-                    pVencCtx->height = 480;//
-                    pVencCtx->bit_rate = pVencCtx->width *pVencCtx->height * 4;
-                    //pVencCtx->bit_rate = 90000;
-                    //pVencCtx->time_base= tb;
-                    pVencCtx->time_base.den = 25;
-                    pVencCtx->time_base.num = 1;
-                    pVencCtx->gop_size = pVencCtx->time_base.den;
-                    pVencCtx->pix_fmt = AV_PIX_FMT_YUV420P;
-                    pVencCtx->flags |= CODEC_FLAG_GLOBAL_HEADER | CODEC_FLAG_LOOP_FILTER | CODEC_FLAG_PASS1;
-                    pVencCtx->keyint_min = pVencCtx->gop_size;
-
-                    pVencCtx->scenechange_threshold = 40;
-                    pVencCtx->sample_aspect_ratio = av_d2q(1, pVencCtx->width / pVencCtx->height);
-
-                    pVencCtx->refs = 8;
-                    pVencCtx->qblur = 0.5;
-                    pVencCtx->qcompress = 0.6;
-                    pVencCtx->b_quant_factor = 1.10;
-                    pVencCtx->i_quant_factor = -1.10;
-                    pVencCtx->qmax = 39;//51;
-                    pVencCtx->qmin = 2;//10;
-                    pVencCtx->max_qdiff = 2;
-                    pVencCtx->me_range = 64;
-
-                    pVencCtx->coder_type = FF_CODER_TYPE_VLC;
-                    pVencCtx->thread_count = 1;//m_globalData.GetConfig().Video().VideoThreads();
-                    pVencCtx->max_b_frames = 3; //???
-                    pVencCtx->me_method = ME_FULL;
-
-                    AVDictionary* dict = NULL;
-                    av_dict_set(&dict, "tune", "zerolatency", 0);
-                    av_dict_set(&dict, "subq", "9", 0);
-                    av_dict_set(&dict, "coder", "1", 0);
-                    av_dict_set(&dict, "mbtree", "1", 0);
-                    av_dict_set(&dict, "dct8x8", "1", 0);
-                    av_dict_set(&dict, "partitions", "i8x8", 0);
-
-                    pVencCtx->flags |= CODEC_FLAG_GLOBAL_HEADER | CODEC_FLAG_LOOP_FILTER | CODEC_FLAG_PASS1;
-
-                    if (avcodec_open2(pVencCtx, pVenc, NULL) < 0) {
-                       fprintf(stderr, "Could not open video codec\n");
-                       exit(1);
-                   }
-                }
-                // the same for audio transcoding
-
-                //Get a pointer to the codec context for the video stream
-                pVCodecCtx=ifmt_ctx[i]->streams[k]->codec;
-                pVCodec=avcodec_find_decoder(pVCodecCtx->codec_id);
-
-                if(pVCodec==NULL)
-                    { fprintf(stderr,"Could not find needed video codec\n"); return -1; }
-
-                if( avcodec_open2(pVCodecCtx, pVCodec, NULL) < 0)
-                     {  fprintf(stderr,"Can not open video codec \n");  return -1; }
-                else
-                    {  fprintf(stdout,"Be used video codec #%d \n", (int)pVCodecCtx->codec_id ); }
-
-                AVStream *in_stream = ifmt_ctx[i]->streams[k];
-                AVStream *out_stream = avformat_new_stream(ofmt_ctx[i], in_stream->codec->codec);
-
-
-                if (!out_stream)
-                {
-                    fprintf(stderr, "Failed allocating output stream\n");
-                    ret = AVERROR_UNKNOWN;
-                    goto end;
-                }
-
-                ret = avcodec_copy_context(out_stream->codec, in_stream->codec);
-                if (ret < 0)
-                {
-                    fprintf(stderr, "Failed to copy context from input to output stream codec context\n");
-                    goto end;
-                }
-
-                AVRational timeBase = out_stream->codec->time_base;
-
-                out_stream->time_base = timeBase;
-                out_stream->codec->codec_tag = 0;
-                if (ofmt_ctx[i]->oformat->flags & AVFMT_GLOBALHEADER)
-                    { out_stream->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
-
-                video_st->time_base = timeBase;
-                video_st->codec->codec_tag = 0;
-                if (oc->oformat->flags & AVFMT_GLOBALHEADER)
-                    { video_st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
+             out_stream->time_base = timeBase;
+             out_stream->codec->codec_tag = 0;
+             if (ofmt_ctx[i]->oformat->flags & AVFMT_GLOBALHEADER)
+                { out_stream->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
+#endif
 
                 video_idx[i] = k;
-                fprintf(stdout, "input video @stream #%d restreamed to\n",video_idx[i] );
-                av_dump_format(ofmt_ctx[i], 0,  out_filename, 1);
             }
 
             if (ifmt_ctx[i]->streams[k]->codec->codec_type == AVMEDIA_TYPE_AUDIO)
@@ -522,6 +523,68 @@ int main(int argc, char **argv)
 
                  pACodecCtx=ifmt_ctx[i]->streams[k]->codec;
                  pACodec=avcodec_find_decoder(pACodecCtx->codec_id);
+
+#ifdef COPY_APACKETS
+                 pAenc=avcodec_find_encoder(pACodecCtx->codec_id);
+#else
+                 pAenc = avcodec_find_encoder(AV_CODEC_ID_AAC);
+#endif
+
+                if(NULL == pAenc)
+                    { fprintf(stderr,"Could not find needed video encoder\n"); exit(1); }
+
+               // avformat_alloc_output_context2(&ovc, NULL, out_format, out_filename);
+
+#ifdef COPY_APACKETS
+                ovc->audio_codec_id = AV_CODEC_ID_MP3;
+                ovc->oformat->audio_codec = AV_CODEC_ID_MP3;
+                ovc->bit_rate = 64000;
+#else
+                ovc->audio_codec_id = AV_CODEC_ID_AAC;
+                ovc->oformat->audio_codec = AV_CODEC_ID_AAC;
+                ovc->bit_rate = 96000;
+#endif
+                //context->bit_rate = m_videoOptions.bitrate * 1024;
+
+                ovc->flags |= AVFMT_GLOBALHEADER;
+                fprintf(stdout," Audio  format allocated\n");
+                pAencCtx= avcodec_alloc_context3(pAenc);
+                fprintf(stdout," Audio  context allocated\n");
+#ifndef COPY_APACKETS
+                //audio_st = avformat_new_stream(oac, pAenc);
+                //if (!audio_st) {
+                //    fprintf(stderr, "Could not allocate video stream\n");
+                //    exit(1);
+                // }
+                // audio_st->id = oac->nb_streams-1;
+                //audio_st->sample_aspect_ratio = av_d2q(1, 255);
+                //audio_st->pts_wrap_bits = 33;
+
+                pAencCtx = audio_st->codec;
+                pAencCtx->bit_rate = pACodecCtx->bit_rate ;  //m_globalData.GetConfig().Audio().Bitrate();
+                fprintf(stderr, "pAencCtx->bit_rate %d\n", pAencCtx->bit_rate);
+                pAencCtx->sample_rate = pACodecCtx->sample_rate; //m_globalData.GetConfig().Audio().Rate();
+                fprintf(stderr, "pAencCtx->sample_rate %d\n", pAencCtx->sample_rate);
+                pAencCtx->channels =  pACodecCtx->channels;//m_globalData.GetConfig().Audio().Channels();
+                fprintf(stderr, "pAencCtx->channels %d\n", pAencCtx->channels);
+                pAencCtx->sample_fmt = pACodecCtx->sample_fmt;//m_globalData.GetConfig().Audio().Fmt();
+                fprintf(stderr, "pAencCtx->sample_fmt %d\n", pAencCtx->sample_fmt);
+                pAencCtx->channel_layout = av_get_default_channel_layout(pAencCtx->channels);
+                //pAencCtx->time_base = (AVRational){1, m_globalData.GetConfig().Audio().Rate()};
+                //m_audioStream->time_base = pAencCtx->time_base;
+                pAencCtx->flags |= CODEC_FLAG_GLOBAL_HEADER;
+                //pAencCtx = fillupVContexts (pVencCtx);
+                //AVDictionary* dict = NULL;
+                //dict = fillupVDictionary (dict);
+
+
+
+                if (avcodec_open2(pAencCtx, pAenc, NULL) < 0) {
+                    fprintf(stderr, "Could not open audio encoder\n");
+                    exit(1);
+                }
+                fprintf(stdout," Audio encoder opened\n");
+#endif
 
                  if(pACodec==NULL)
                     { fprintf(stderr,"Could not find needed audio codec\n"); return -1; }
@@ -534,7 +597,11 @@ int main(int argc, char **argv)
                 AVStream *ina_stream = ifmt_ctx[i]->streams[k];
                 AVStream *out_stream = avformat_new_stream(ofmt_ctx[i], ina_stream->codec->codec);
 
-                audio_st = avformat_new_stream(oc, ina_stream->codec->codec);
+#ifdef COPY_APACKETS
+                audio_st = avformat_new_stream(ovc, ina_stream->codec->codec);
+#else
+                audio_st = avformat_new_stream(ovc, pAenc);
+#endif
                 ret = avcodec_copy_context(audio_st->codec, ina_stream->codec);
                 if (ret < 0)
                 {
@@ -561,7 +628,7 @@ int main(int argc, char **argv)
 
                 audio_st->time_base = timeBase;
                 audio_st->codec->codec_tag = 0;
-                if (oc->oformat->flags & AVFMT_GLOBALHEADER)
+                if (ovc->oformat->flags & AVFMT_GLOBALHEADER)
                     { audio_st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
 
                 out_stream->codec->codec_tag = 0;
@@ -575,10 +642,10 @@ int main(int argc, char **argv)
 
          if (!(ofmt[i]->flags & AVFMT_NOFILE))
         {
-#ifdef COPY_PACKETS
+#ifdef COPY_VPACKETS
             ret = avio_open(&ofmt_ctx[i]->pb, out_filename, AVIO_FLAG_WRITE);
 #else
-            ret = avio_open(&oc->pb, out_filename, AVIO_FLAG_WRITE);
+            ret = avio_open(&ovc->pb, out_filename, AVIO_FLAG_WRITE);
 #endif
             if (ret < 0)
             {
@@ -588,12 +655,12 @@ int main(int argc, char **argv)
         }
 
         fprintf(stdout, "Dump output format\n");
-#ifdef  COPY_PACKETS
+#ifdef  COPY_VPACKETS
         ret = avformat_write_header(ofmt_ctx[i], NULL);
         av_dump_format(ofmt_ctx[i], 0, out_filename, 1);
 #else
-        ret = avformat_write_header(oc, NULL);
-        av_dump_format(oc, 0,  out_filename, 1);
+        ret = avformat_write_header(ovc, NULL);
+        av_dump_format(ovc, 0,  out_filename, 1);
 #endif
         if (ret < 0)
         {
@@ -621,20 +688,20 @@ int main(int argc, char **argv)
 end:
     for (i = 0; i < MAX; i++)
     {
-#ifdef COPY_PACKETS
+#ifdef COPY_VPACKETS
         av_write_trailer(ofmt_ctx[i]);
 #else
-        av_write_trailer(oc);
+        av_write_trailer(ovc);
 #endif
         avformat_close_input(&ifmt_ctx[i]);
-#ifdef COPY_PACKETS
+#ifdef COPY_VPACKETS
         if (ofmt_ctx[i] && !(ofmt[i]->flags & AVFMT_NOFILE))
             avio_closep(&ofmt_ctx[i]->pb);
         avformat_free_context(ofmt_ctx[i]);
 #else
-        if (oc && !(ofmte[i]->flags & AVFMT_NOFILE))
-           avio_closep(&oc->pb);
-        avformat_free_context(oc);
+        if (ovc && !(ofmte[i]->flags & AVFMT_NOFILE))
+           avio_closep(&ovc->pb);
+        avformat_free_context(ovc);
 #endif
 
         if (ret < 0 && ret != AVERROR_EOF)
