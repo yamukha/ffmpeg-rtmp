@@ -1,6 +1,9 @@
 #include <libavutil/timestamp.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
+#include "libavutil/opt.h"
+
 #include <pthread.h>
 #include <unistd.h>
 
@@ -147,6 +150,12 @@ int InitVideoEncoder (int i, int k)
                 fprintf(stderr, "Could not open video codec\n");
                 exit(1);
             }
+
+            video_st->time_base = ifmt_ctx[i]->streams[k]->codec->time_base;
+            video_st->codec->codec_tag = 0;
+            if (ovc->oformat->flags & AVFMT_GLOBALHEADER)
+                { video_st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
+
         }
     }
     return 0;
@@ -170,6 +179,24 @@ int nextPTS()
 {
     return static_pts ++;
 }
+
+void SaveAFrames (AVFrame *pFrame, int channels )
+{
+    FILE *pFile;
+    char filename[32];
+    int  y;
+    // Open file
+    sprintf(filename, "audio.raw");
+    pFile=fopen(filename, "a");
+    if(pFile==NULL)
+        return;
+    int i, ch;
+    for (i=0; i< pFrame->nb_samples ; i++)
+        for (ch=0; ch < channels; ch++)
+    fwrite(pFrame->data[ch] + channels*i, 1, channels, pFile);
+    fclose(pFile);
+}
+
 void SaveVFrame(AVFrame *pFrame, int width, int height, int iFrame)
 {
     FILE *pFile;
@@ -214,15 +241,21 @@ void* worker_thread(void *Param)
     int frameCount = 0;
     int pktCount = 0;
 
-    AVCodecParserContext* parser;
-    AVFrame *pinFrame;
-    AVFrame *pFrameRGB;
-    AVFrame *poutFrame;
-    struct SwsContext *img_convert_ctxi = NULL;
-    struct SwsContext *img_convert_ctxo = NULL;
+   // AVCodecParserContext* parser;
+
+    SwrContext *resample_context = swr_alloc();
+    av_opt_set_int(resample_context, "in_channel_layout",  AV_CH_LAYOUT_5POINT1, 0);
+    av_opt_set_int(resample_context, "out_channel_layout", AV_CH_LAYOUT_STEREO,  0);
+    av_opt_set_int(resample_context, "in_sample_rate",     48000,                0);
+    av_opt_set_int(resample_context, "out_sample_rate",    44100,                0);
+    av_opt_set_sample_fmt(resample_context, "in_sample_fmt",  AV_SAMPLE_FMT_FLTP, 0);
+    av_opt_set_sample_fmt(resample_context, "out_sample_fmt", AV_SAMPLE_FMT_S16,  0);
 
     while (1)
     {
+        pkt[id].data = NULL;
+        pkt[id].size = 0;
+
         ret = av_read_frame(ifmt_ctx[id], &pkt[id]);
         if (ret < 0)
             break;
@@ -234,6 +267,7 @@ void* worker_thread(void *Param)
             AVStream *in_stream = ifmt_ctx[id]->streams[pkt[id].stream_index];
             AVStream *out_stream = ofmt_ctx[id]->streams[pkt[id].stream_index];
             AVRational time_base = ifmt_ctx[id]->streams[idxa]->time_base;
+            AVStream *enc_stream = ovc->streams[pkt[id].stream_index];
 
 #ifdef LIVE_STREAM         
            int time = 1000;
@@ -241,7 +275,54 @@ void* worker_thread(void *Param)
            int time = 1000 * 1000 * strtof(av_ts2timestr(pkt[id].duration, &time_base), NULL);           
 #endif            
             usleep(time);
-        
+
+            int afinished = 0;
+            int len;
+            int adata_size = 0;
+
+            AVFrame *aframe = av_frame_alloc();
+            if (!(aframe = av_frame_alloc())) {
+                fprintf(stderr, "Could not allocate audio frame\n");
+                continue;
+            }
+
+            len = avcodec_decode_audio4(in_stream->codec, aframe,  &afinished, &pkt[id]);
+            if (len < 0) {
+                fprintf(stderr, "Could not decode frame (error '%s')\n",  av_err2str(ret));
+                av_free_packet(&pkt[id]);
+                continue;
+            }
+
+            adata_size += len;
+            if (!afinished)
+                continue;
+
+            if (afinished) {
+                int data_size = av_get_bytes_per_sample(in_stream->codec->sample_fmt);
+                if (data_size < 0) {
+                    fprintf(stderr, "Failed to calculate data size\n");
+                    continue;
+                }
+                //SaveAFrames (aframe, data_size);
+            }
+
+            uint8_t *converted_input_samples;
+
+            converted_input_samples = ( uint8_t *) calloc(enc_stream->codec->channels, sizeof(uint8_t)); //
+            if ( NULL == converted_input_samples)
+            {
+                fprintf(stderr, "Could not allocate converted input sample pointers\n");
+            }
+
+            av_samples_alloc(converted_input_samples, NULL,enc_stream->codec->channels,//
+                 aframe->nb_samples, enc_stream->codec->sample_fmt, 0);
+
+            //ret = swr_convert(enc_stream->swr_ctx,
+            //		(const uint8_t **) aframe->nb_samples,
+            //                  (const uint8_t **)aframe->data, aframe->nb_samples);
+
+
+
             pkt[id].pts = av_rescale_q_rnd(pkt[id].pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
             pkt[id].dts = av_rescale_q_rnd(pkt[id].dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
             pkt[id].duration = av_rescale_q(pkt[id].duration, in_stream->time_base, out_stream->time_base);
@@ -266,7 +347,7 @@ void* worker_thread(void *Param)
         
             av_free_packet(&pkt[id]);
             continue;
-		}
+        }
 
         // video packets handler
         if (pkt[id].stream_index != idx)
@@ -286,6 +367,12 @@ void* worker_thread(void *Param)
         int got_packet = 0;
         int frameFinished;
 
+        AVFrame *pinFrame;
+        AVFrame *pFrameRGB;
+        AVFrame *poutFrame;
+        struct SwsContext *img_convert_ctxi = NULL;
+        struct SwsContext *img_convert_ctxo = NULL;
+
         //AV_PIX_FMT_YUV420P AV_PIX_FMT_RGB24 AV_PIX_FMT_BGRA AV_PIX_FMT_YUVJ420P
 
         enum AVPixelFormat oPixFormat = AV_PIX_FMT_YUV420P;
@@ -296,11 +383,11 @@ void* worker_thread(void *Param)
         pFrameRGB=av_frame_alloc();
         poutFrame=av_frame_alloc();
 
-        parser = av_parser_init(AV_CODEC_ID_H264);
-        if(!parser) {
-            fprintf(stderr,"Erorr: cannot create H264 parser.\n");
-            exit (-1);
-        }
+//        parser = av_parser_init(AV_CODEC_ID_H264);
+//        if(!parser) {
+//            fprintf(stderr,"Erorr: cannot create H264 parser.\n");
+//            exit (-1);
+//        }
 
         int num_inBytes=avpicture_get_size(iPixFormat, iw, ih);
         uint8_t* in_buffer=(uint8_t *)av_malloc(num_inBytes*sizeof(uint8_t));
@@ -520,71 +607,72 @@ int main(int argc, char **argv)
 
             if (ifmt_ctx[i]->streams[k]->codec->codec_type == AVMEDIA_TYPE_AUDIO)
             {
-
-                 pACodecCtx=ifmt_ctx[i]->streams[k]->codec;
-                 pACodec=avcodec_find_decoder(pACodecCtx->codec_id);
-
+                if (ofmte[i]->audio_codec != AV_CODEC_ID_NONE) {
 #ifdef COPY_APACKETS
-                 pAenc=avcodec_find_encoder(pACodecCtx->codec_id);
-#else
-                 pAenc = avcodec_find_encoder(AV_CODEC_ID_AAC);
-#endif
-
+                //                   InitAudioEncoder (i,k);
+                //int aencID = AV_CODEC_ID_AAC;
+                int aencID = ifmt_ctx[i]->streams[k]->codec->codec_id;
+                pAenc=avcodec_find_encoder(aencID);
                 if(NULL == pAenc)
-                    { fprintf(stderr,"Could not find needed video encoder\n"); exit(1); }
+                    { fprintf(stderr,"Could not find needed audio encoder\n"); exit(1); }
 
-               // avformat_alloc_output_context2(&ovc, NULL, out_format, out_filename);
+                //avformat_alloc_output_context2(&ovc, NULL, out_format, out_filename); // no need 2nd time
 
-#ifdef COPY_APACKETS
-                ovc->audio_codec_id = AV_CODEC_ID_MP3;
-                ovc->oformat->audio_codec = AV_CODEC_ID_MP3;
-                ovc->bit_rate = 64000;
-#else
-                ovc->audio_codec_id = AV_CODEC_ID_AAC;
-                ovc->oformat->audio_codec = AV_CODEC_ID_AAC;
-                ovc->bit_rate = 96000;
-#endif
-                //context->bit_rate = m_videoOptions.bitrate * 1024;
+                ovc->audio_codec_id = aencID;
+                ovc->oformat->audio_codec = aencID;
 
-                ovc->flags |= AVFMT_GLOBALHEADER;
-                fprintf(stdout," Audio  format allocated\n");
                 pAencCtx= avcodec_alloc_context3(pAenc);
-                fprintf(stdout," Audio  context allocated\n");
-#ifndef COPY_APACKETS
-                //audio_st = avformat_new_stream(oac, pAenc);
-                //if (!audio_st) {
-                //    fprintf(stderr, "Could not allocate video stream\n");
-                //    exit(1);
-                // }
-                // audio_st->id = oac->nb_streams-1;
-                //audio_st->sample_aspect_ratio = av_d2q(1, 255);
-                //audio_st->pts_wrap_bits = 33;
+                pAencCtx->codec_id = aencID;
+                pAencCtx->codec_type = AVMEDIA_TYPE_AUDIO;
 
+                audio_st = avformat_new_stream(ovc, pAenc);
+                if (!audio_st) {
+                    fprintf(stderr, "Could not allocate video stream\n");
+                    exit(1);
+                }
+
+                audio_st->id = ovc->nb_streams;
+                audio_st->time_base = ifmt_ctx[i]->streams[k]->codec->time_base;
+                audio_st->codec->codec_tag = 0;
+                if (ovc->oformat->flags & AVFMT_GLOBALHEADER)
+                    { audio_st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
+
+
+                fprintf(stdout," Audio encoder fillup stream #%d\n", ovc->nb_streams);
                 pAencCtx = audio_st->codec;
-                pAencCtx->bit_rate = pACodecCtx->bit_rate ;  //m_globalData.GetConfig().Audio().Bitrate();
-                fprintf(stderr, "pAencCtx->bit_rate %d\n", pAencCtx->bit_rate);
-                pAencCtx->sample_rate = pACodecCtx->sample_rate; //m_globalData.GetConfig().Audio().Rate();
-                fprintf(stderr, "pAencCtx->sample_rate %d\n", pAencCtx->sample_rate);
-                pAencCtx->channels =  pACodecCtx->channels;//m_globalData.GetConfig().Audio().Channels();
-                fprintf(stderr, "pAencCtx->channels %d\n", pAencCtx->channels);
-                pAencCtx->sample_fmt = pACodecCtx->sample_fmt;//m_globalData.GetConfig().Audio().Fmt();
-                fprintf(stderr, "pAencCtx->sample_fmt %d\n", pAencCtx->sample_fmt);
+                pAencCtx->bit_rate = ifmt_ctx[i]->streams[k]->codec->bit_rate ;
+
+                fprintf(stderr, "pAencCtx->bit_rate %d\n", ifmt_ctx[i]->streams[k]->codec->bit_rate);
+                pAencCtx->sample_rate = ifmt_ctx[i]->streams[k]->codec->sample_rate ;
+                fprintf(stderr, "pAencCtx->sample_rate %d\n", ifmt_ctx[i]->streams[k]->codec->sample_rate);
+                pAencCtx->channels =  ifmt_ctx[i]->streams[k]->codec->channels;
+                fprintf(stderr, "pAencCtx->channels %d\n", ifmt_ctx[i]->streams[k]->codec->channels);
+                pAencCtx->sample_fmt = ifmt_ctx[i]->streams[k]->codec->sample_fmt;
+
+                fprintf(stderr, "pAencCtx->sample_fmt %d\n", ifmt_ctx[i]->streams[k]->codec->sample_fmt);
                 pAencCtx->channel_layout = av_get_default_channel_layout(pAencCtx->channels);
+                if ( AV_CODEC_ID_AAC == ovc->oformat->audio_codec)
+                {
+                    pAencCtx->bit_rate = 96000;
+                    pAencCtx->sample_fmt = AV_SAMPLE_FMT_S16;
+                }
                 //pAencCtx->time_base = (AVRational){1, m_globalData.GetConfig().Audio().Rate()};
                 //m_audioStream->time_base = pAencCtx->time_base;
-                pAencCtx->flags |= CODEC_FLAG_GLOBAL_HEADER;
                 //pAencCtx = fillupVContexts (pVencCtx);
-                //AVDictionary* dict = NULL;
-                //dict = fillupVDictionary (dict);
 
-
-
+                ovc->bit_rate += pAencCtx->bit_rate;
                 if (avcodec_open2(pAencCtx, pAenc, NULL) < 0) {
                     fprintf(stderr, "Could not open audio encoder\n");
                     exit(1);
                 }
+
                 fprintf(stdout," Audio encoder opened\n");
 #endif
+                 } // audio encoder init
+
+                 // audio decoder init
+                 pACodecCtx=ifmt_ctx[i]->streams[k]->codec;
+                 pACodec=avcodec_find_decoder(pACodecCtx->codec_id);
 
                  if(pACodec==NULL)
                     { fprintf(stderr,"Could not find needed audio codec\n"); return -1; }
@@ -597,24 +685,26 @@ int main(int argc, char **argv)
                 AVStream *ina_stream = ifmt_ctx[i]->streams[k];
                 AVStream *out_stream = avformat_new_stream(ofmt_ctx[i], ina_stream->codec->codec);
 
-#ifdef COPY_APACKETS
+                if (!out_stream)
+                {
+                    fprintf(stderr, "Failed allocating output stream\n");
+                    ret = AVERROR_UNKNOWN;
+                    goto end;
+                }
+
+#ifndef COPY_APACKETS
                 audio_st = avformat_new_stream(ovc, ina_stream->codec->codec);
-#else
-                audio_st = avformat_new_stream(ovc, pAenc);
-#endif
                 ret = avcodec_copy_context(audio_st->codec, ina_stream->codec);
                 if (ret < 0)
                 {
-                     fprintf(stderr, "Failed to copy context from input to output stream codec context\n");
-                     goto end;
+                    fprintf(stderr, "Failed to copy context from input to output stream codec context\n");
+                    goto end;
                 }
-
-                if (!out_stream)
-                {
-                   fprintf(stderr, "Failed allocating output stream\n");
-                   ret = AVERROR_UNKNOWN;
-                   goto end;
-                }
+                audio_st->time_base = ifmt_ctx[i]->streams[k]->codec->time_base;
+                audio_st->codec->codec_tag = 0;
+                if (ovc->oformat->flags & AVFMT_GLOBALHEADER)
+                    { audio_st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
+#endif
 
                 ret = avcodec_copy_context(out_stream->codec, ina_stream->codec);
                 if (ret < 0)
@@ -626,17 +716,12 @@ int main(int argc, char **argv)
                 AVRational timeBase = out_stream->codec->time_base;
                 out_stream->time_base = timeBase;
 
-                audio_st->time_base = timeBase;
-                audio_st->codec->codec_tag = 0;
-                if (ovc->oformat->flags & AVFMT_GLOBALHEADER)
-                    { audio_st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
-
                 out_stream->codec->codec_tag = 0;
                 if (ofmt_ctx[i]->oformat->flags & AVFMT_GLOBALHEADER)
                     { out_stream->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
 
                 audio_idx[i] = k;
-                fprintf(stdout, "input audio @stream #%d restreamed to\n",audio_idx[i+1]);
+                fprintf(stdout, "Output audio @stream #%d \n",audio_idx[i+1]);
             }
         } // for
 
