@@ -356,21 +356,29 @@ void* worker_thread(void *Param)
                 fprintf(stderr, "Error encoding audio frame: %s\n", av_err2str(ret));
                 exit(1);
             }
+
+            av_freep(&input_samples[0]);
+            av_freep(&converted_samples[0]);
+
             if (got_apacket) {
                // ret = write_frame(ovc, &enc_stream->codec->time_base, enc_stream, &oapkt);
                rescaleTimeBase(&oapkt, &pkt[id], in_stream->time_base,enc_stream->time_base );
                //ret = av_interleaved_write_frame(ovc, &oapkt);
+               av_frame_free (&ain_frame);
+               av_frame_free (&aout_frame);
+               av_free_packet(&oapkt);
                 if (ret < 0) {
                     fprintf(stderr, "Error while writing audio frame: %s\n", av_err2str(ret));
                     //exit(1);
                 }
+
             }
 
-            pkt[id].pts = av_rescale_q_rnd(pkt[id].pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-            pkt[id].dts = av_rescale_q_rnd(pkt[id].dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
-            pkt[id].duration = av_rescale_q(pkt[id].duration, in_stream->time_base, out_stream->time_base);
-            pkt[id].pos = -1;
-            pkt[id].stream_index = idxa;
+//            pkt[id].pts = av_rescale_q_rnd(pkt[id].pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+//            pkt[id].dts = av_rescale_q_rnd(pkt[id].dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
+//            pkt[id].duration = av_rescale_q(pkt[id].duration, in_stream->time_base, out_stream->time_base);
+//            pkt[id].pos = -1;
+//            pkt[id].stream_index = idxa;
 
 #ifdef COPY_APACKETS
 #ifdef COPY_VPACKETS
