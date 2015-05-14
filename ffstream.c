@@ -244,12 +244,7 @@ void* worker_thread(void *Param)
    // AVCodecParserContext* parser;
 
     SwrContext *resample_context = swr_alloc();
-    av_opt_set_int(resample_context, "in_channel_layout",  AV_CH_LAYOUT_5POINT1, 0);
-    av_opt_set_int(resample_context, "out_channel_layout", AV_CH_LAYOUT_STEREO,  0);
-    av_opt_set_int(resample_context, "in_sample_rate",     48000,                0);
-    av_opt_set_int(resample_context, "out_sample_rate",    44100,                0);
-    av_opt_set_sample_fmt(resample_context, "in_sample_fmt",  AV_SAMPLE_FMT_FLTP, 0);
-    av_opt_set_sample_fmt(resample_context, "out_sample_fmt", AV_SAMPLE_FMT_S16,  0);
+
 
     while (1)
     {
@@ -269,6 +264,16 @@ void* worker_thread(void *Param)
             AVRational time_base = ifmt_ctx[id]->streams[idxa]->time_base;
             AVStream *enc_stream = ovc->streams[pkt[id].stream_index];
 
+            //av_opt_set_int(resample_context, "in_channel_layout",  AV_CH_LAYOUT_5POINT1, 0);
+            //av_opt_set_int(resample_context, "out_channel_layout", AV_CH_LAYOUT_STEREO,  0);
+            av_opt_set_int(resample_context, "in_channel_layout",  in_stream->codec->channel_layout, 0);
+            av_opt_set_int(resample_context, "out_channel_layout", enc_stream->codec->channel_layout,  0);
+            av_opt_set_int(resample_context, "in_sample_rate",     in_stream->codec->sample_rate,                0);
+            av_opt_set_int(resample_context, "out_sample_rate",    enc_stream->codec->sample_rate,                0);
+            av_opt_set_sample_fmt(resample_context, "in_sample_fmt",  in_stream->codec->sample_fmt, 0);
+            av_opt_set_sample_fmt(resample_context, "out_sample_fmt", enc_stream->codec->sample_fmt,  0);
+            swr_init(resample_context);
+
 #ifdef LIVE_STREAM         
            int time = 1000;
 #else    
@@ -277,16 +282,32 @@ void* worker_thread(void *Param)
             usleep(time);
 
             int afinished = 0;
+            int got_apacket = 0;
             int len;
             int adata_size = 0;
 
-            AVFrame *aframe = av_frame_alloc();
-            if (!(aframe = av_frame_alloc())) {
+            AVPacket oapkt ;
+            oapkt.data = NULL;
+            oapkt.size = 0;
+            oapkt.flags |= AV_PKT_FLAG_KEY;
+            oapkt.pts = oapkt.dts = pktCount;
+            av_init_packet(&oapkt);
+            oapkt.pos = -1;
+            //ovc->streams [pkt[id].stream_index]->codec->coded_frame->pts = pktCount; // seg fault
+
+            AVFrame *ain_frame = av_frame_alloc();
+            if (!(ain_frame = av_frame_alloc())) {
                 fprintf(stderr, "Could not allocate audio frame\n");
                 continue;
             }
 
-            len = avcodec_decode_audio4(in_stream->codec, aframe,  &afinished, &pkt[id]);
+            AVFrame *aout_frame = av_frame_alloc();
+            if (!(aout_frame = av_frame_alloc())) {
+                 fprintf(stderr, "Could not allocate audio frame\n");
+                 continue;
+            }
+
+            len = avcodec_decode_audio4(in_stream->codec, ain_frame,  &afinished, &pkt[id]);
             if (len < 0) {
                 fprintf(stderr, "Could not decode frame (error '%s')\n",  av_err2str(ret));
                 av_free_packet(&pkt[id]);
@@ -306,22 +327,44 @@ void* worker_thread(void *Param)
                 //SaveAFrames (aframe, data_size);
             }
 
-            uint8_t *converted_input_samples;
+            uint8_t *input_samples;
+            uint8_t *converted_samples;
 
-            converted_input_samples = ( uint8_t *) calloc(enc_stream->codec->channels, sizeof(uint8_t)); //
-            if ( NULL == converted_input_samples)
+            converted_samples = ( uint8_t *) calloc(enc_stream->codec->channels, sizeof(uint8_t)); //
+            if ( NULL == converted_samples)
             {
                 fprintf(stderr, "Could not allocate converted input sample pointers\n");
             }
 
-            av_samples_alloc(converted_input_samples, NULL,enc_stream->codec->channels,//
-                 aframe->nb_samples, enc_stream->codec->sample_fmt, 0);
+            input_samples = ( uint8_t *) calloc(enc_stream->codec->channels, sizeof(uint8_t)); //
+            if ( NULL == input_samples)
+            {
+                fprintf(stderr, "Could not allocate converted input sample pointers\n");
+            }
 
-            //ret = swr_convert(enc_stream->swr_ctx,
-            //		(const uint8_t **) aframe->nb_samples,
-            //                  (const uint8_t **)aframe->data, aframe->nb_samples);
+            av_samples_alloc(converted_samples, NULL,enc_stream->codec->channels,//
+                 ain_frame->nb_samples, enc_stream->codec->sample_fmt, 0);
 
+            ret = swr_convert(resample_context,	(const uint8_t * const*) converted_samples, ain_frame->nb_samples,
+                              (const uint8_t * const*)ain_frame->data, ain_frame->nb_samples);
 
+            ain_frame->data[0]= converted_samples;
+            ain_frame->pts =  pktCount;
+            SaveAFrames (ain_frame, av_get_bytes_per_sample(enc_stream->codec->sample_fmt));
+            ret = avcodec_encode_audio2(enc_stream->codec, &oapkt, ain_frame, &got_apacket);
+            if (ret < 0) {
+                fprintf(stderr, "Error encoding audio frame: %s\n", av_err2str(ret));
+                exit(1);
+            }
+            if (got_apacket) {
+               // ret = write_frame(ovc, &enc_stream->codec->time_base, enc_stream, &oapkt);
+               rescaleTimeBase(&oapkt, &pkt[id], in_stream->time_base,enc_stream->time_base );
+               //ret = av_interleaved_write_frame(ovc, &oapkt);
+                if (ret < 0) {
+                    fprintf(stderr, "Error while writing audio frame: %s\n", av_err2str(ret));
+                    //exit(1);
+                }
+            }
 
             pkt[id].pts = av_rescale_q_rnd(pkt[id].pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
             pkt[id].dts = av_rescale_q_rnd(pkt[id].dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
@@ -653,8 +696,10 @@ int main(int argc, char **argv)
                 pAencCtx->channel_layout = av_get_default_channel_layout(pAencCtx->channels);
                 if ( AV_CODEC_ID_AAC == ovc->oformat->audio_codec)
                 {
-                    pAencCtx->bit_rate = 96000;
+                    //pAencCtx->bit_rate = 96000;
                     pAencCtx->sample_fmt = AV_SAMPLE_FMT_S16;
+                    pAencCtx->channel_layout = AV_CH_LAYOUT_5POINT1;
+                    //pAencCtx->sample_rate = ;
                 }
                 //pAencCtx->time_base = (AVRational){1, m_globalData.GetConfig().Audio().Rate()};
                 //m_audioStream->time_base = pAencCtx->time_base;
