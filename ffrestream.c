@@ -2,17 +2,20 @@
 #include <libavformat/avformat.h>
 #include <pthread.h>
 #include <unistd.h>
+#include "utils.h"
 
 #define MAX 1
 #define LIVE_STREAM 
-#define A_DELAY 80000;
-#define V_DELAY 20000;
+#define A_DELAY 10000;
+#define V_DELAY 10000;
 AVOutputFormat *ofmt[MAX];
 AVFormatContext *ifmt_ctx[MAX], *ofmt_ctx[MAX];
 int video_idx[MAX], audio_idx[MAX];
 AVPacket pkt[MAX];
 static int adelay = A_DELAY;
 static int vdelay = V_DELAY;
+static int apackets_nb = 0;
+static int vpackets_nb = 0;
 
 typedef struct fifonode {
     //AVPacket *fn_data;
@@ -160,9 +163,9 @@ static void print_usage()
 {
   fprintf (stdout,
            "demuxes media input to rpmt streams\n"
-           "usage:  ./ffstream input destination format video_delay audio_delay\n"
+           "usage:  ./ffstream input destination format video\n"
            "i.e."
-           "./ffstream rtmp://ev1.favbet.com/live/stream26 rtmp://127.0.0.1/live/mystream flv 5 5\n"
+           "./ffstream rtmp://ev1.favbet.com/live/stream26 rtmp://127.0.0.1/live/mystream flv 5 \n"
          );
 }
 
@@ -177,6 +180,17 @@ void* worker_thread(void *Param)
     fifo_t * vpackets_queue ;
     apackets_queue = fifo_new ();
     vpackets_queue = fifo_new ();
+
+    long vstart_time = 0;
+    long astart_time = 0;
+    long vdelta_time = 0;
+    int vtime_trigger = 0;
+    long adelta_time = 0;
+    int atime_trigger = 0;
+    float a2v_coeff = 1.0;
+    int apackets_cnt = 0;
+    int vpackets_cnt = 0;
+    int a2v_measure_done = 0;
 
     while (1)
     {
@@ -205,15 +219,39 @@ void* worker_thread(void *Param)
             pkt[id].pos = -1;
             pkt[id].stream_index = idxa;
 
-            while (80000 > fifo_len (apackets_queue))
+            if ( 0 == apackets_nb)
             {
-                 fifo_add (apackets_queue, (void*) &pkt[id] );
-                 //printf ("fifo_len (apackets_queue)%d\n", fifo_len (apackets_queue));
+                astart_time = get_time_ms ();
+                printf("Current time: since the Epoch %ld ms \n",  vstart_time );
+            }
+            while (adelay > fifo_len (apackets_queue))
+            {
+                adelta_time = get_time_ms () - astart_time;
+                fifo_add (apackets_queue, (void*) &pkt[id] );
+                //printf ("fifo_len (apackets_queue)%d\n", fifo_len (apackets_queue));
+                if  (!atime_trigger && adelta_time  >=  100 )
+                {
+                    atime_trigger++;
+                    apackets_cnt = apackets_nb;
+                    adelay = (apackets_nb *  adelay / 10000 - apackets_nb)/2 ;
+                    if ( adelay < apackets_nb ) {
+                        adelay = apackets_nb;
+                    }
+                    printf("delta time: %ld ms , audio packets count = %d \n", adelta_time,  apackets_nb);
+                }
+                apackets_nb++;
+                if (vtime_trigger && atime_trigger && vpackets_nb && a2v_coeff == 1.0 ) {
+                    a2v_coeff = (float) vpackets_cnt/(float) apackets_cnt;
+                    printf("a2v_coeff: %f , audio packets count = %d \n", a2v_coeff,  apackets_cnt);
+                    printf("adelay: %d , vdelay= %d \n" , adelay, vdelay);
+                }
+
             }
             fifo_add (apackets_queue,  (void*)&pkt[id]);
             pkt[id] = *(AVPacket *)get_head (apackets_queue);
             fifo_remove (apackets_queue);
             ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
+            //apackets_nb++;
 
             if (ret < 0)
             {
@@ -244,14 +282,43 @@ void* worker_thread(void *Param)
 #endif        
         usleep(time);
 
-        while (20000 > fifo_len (vpackets_queue))
+        if ( 0 == vpackets_nb){
+            vstart_time = get_time_ms ();
+            printf("Current time: since the Epoch %ld ms \n",  vstart_time );
+        }
+
+        while (vdelay > fifo_len (vpackets_queue))
         {
+            vdelta_time = get_time_ms () - vstart_time;
+
             fifo_add (vpackets_queue, (void*) &pkt[id] );
             //printf ("fifo_len (vpackets_queue)%d\n", fifo_len (vpackets_queue));
+            if  (!vtime_trigger && vdelta_time  >=  100 )
+            {
+                vtime_trigger++;
+                vpackets_cnt = vpackets_nb;
+                vdelay = (vpackets_nb *  vdelay / 10000 - vpackets_nb)/2 ;
+                if ( vdelay < vpackets_nb )
+                    vdelay = vpackets_nb;
+                printf("delta time: %ld ms , video packets count = %d \n", vdelta_time,  vpackets_nb);
+            }
+            vpackets_nb++;
+            if (vtime_trigger && atime_trigger && apackets_nb && a2v_coeff == 1.0 ) {
+                a2v_coeff = (float) vpackets_cnt/(float) apackets_cnt;
+                printf("a2v_coeff: %f ms , audio packets count = %d \n", a2v_coeff,  vpackets_cnt);
+                printf("adelay: %d , vdelay= %d \n" , adelay, vdelay);
+
+            }
         }
+
         fifo_add (vpackets_queue,  (void*)&pkt[id]);
         pkt[id] = *(AVPacket *)get_head (vpackets_queue);
         fifo_remove (vpackets_queue);
+        if ( vdelay/1000 == vpackets_nb) {
+                  printf("Current time: since the Epoch %ld ms \n",  get_time_ms ());
+        }
+        //vpackets_nb++;
+
         ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
 
         ret = 0;
@@ -262,6 +329,7 @@ void* worker_thread(void *Param)
        }
 
        av_free_packet(&pkt[id]);
+
     }  // while
 }
 
@@ -282,7 +350,7 @@ int main(int argc, char **argv)
     memset(ifmt_ctx, 0, sizeof(ifmt_ctx));
     memset(video_idx, -1, sizeof(video_idx));
 
-    if  (argc < 6)
+    if  (argc < 5)
     {
         print_usage();
         exit (0);    
@@ -292,11 +360,12 @@ int main(int argc, char **argv)
     destination = argv[2];
     out_format = argv[3];
     vdelay = 10000 * atoi (argv[4]);
-    adelay = 10000 * 4 * atoi (argv[5]);
-    if  (0 == adelay )
+    adelay = vdelay;
+    if  (0 == vdelay || 3 >= vdelay  )
+    {
         adelay = A_DELAY;
-    if  (0 == vdelay )
         vdelay = V_DELAY;
+    }
 
     printf ("video delay = %d , audio delay = %d\n", vdelay ,adelay);
     av_register_all();
