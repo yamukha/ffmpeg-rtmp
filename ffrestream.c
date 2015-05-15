@@ -54,7 +54,7 @@ void fifo_add(fifo_t *f, void *data)
     else {
         f->f_tail->fn_next = fn;
         f->f_tail = fn;
-}
+    }
 }
 
 // Remove from the front of the fifo
@@ -124,7 +124,6 @@ int fifo_iter(fifo_t *f, int (*iter)(void *data, void *arg), void *arg)
             return (-1);
         ret += rc;
     }
-
     return (ret);
 }
 
@@ -138,7 +137,7 @@ void list_print_head (fifo_t *p )
       printf("Num = %d\n", *(int *)fn->fn_data);
     }
     return;
-  }
+}
 
 void * get_tail (fifo_t *p )
 {
@@ -150,7 +149,7 @@ void * get_tail (fifo_t *p )
      // printf("Num = %d\n", *(int *)fn->fn_data);
     }
     return fn->fn_data;
-  }
+}
 
 void * get_head (fifo_t *p )
 {
@@ -164,14 +163,14 @@ void * get_head (fifo_t *p )
     return fn->fn_data;
 }
 
-static void print_usage() 
+static void print_usage()
 {
-  fprintf (stdout,
-           "demuxes media input to rpmt streams\n"
-           "usage:  ./ffstream input destination format video\n"
-           "i.e."
-           "./ffstream rtmp://ev1.favbet.com/live/stream26 rtmp://127.0.0.1/live/mystream flv 5 \n"
-         );
+    fprintf (stdout,
+             "demuxes media input to rpmt streams\n"
+             "usage:  ./ffstream input destination format video\n"
+             "i.e."
+             "./ffstream rtmp://ev1.favbet.com/live/stream26 rtmp://127.0.0.1/live/mystream flv 5 \n"
+             );
 }
 
 void* worker_thread(void *Param)
@@ -211,11 +210,11 @@ void* worker_thread(void *Param)
             AVStream *out_stream = ofmt_ctx[id]->streams[pkt[id].stream_index];
             AVRational time_base = ifmt_ctx[id]->streams[idxa]->time_base;
 
-#ifdef LIVE_STREAM         
+#ifdef LIVE_STREAM
            int time = 1000;
-#else    
-           int time = 1000 * 1000 * strtof(av_ts2timestr(pkt[id].duration, &time_base), NULL);           
-#endif            
+#else
+           int time = 1000 * 1000 * strtof(av_ts2timestr(pkt[id].duration, &time_base), NULL);
+#endif
             usleep(time);
 
             pkt[id].pts = av_rescale_q_rnd(pkt[id].pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
@@ -263,8 +262,8 @@ void* worker_thread(void *Param)
             {
                 fprintf(stderr, "Error muxing packet thread %d\n", id);
                 break;
-            }     
-        
+            }
+
             av_free_packet(&pkt[id]);
             continue;
 		}
@@ -281,11 +280,11 @@ void* worker_thread(void *Param)
         AVRational time_base = ifmt_ctx[id]->streams[idx]->time_base;
 
 
-#ifdef LIVE_STREAM    
+#ifdef LIVE_STREAM
         int time = 1000;
 #else
         int time = 1000 * 1000 * strtof(av_ts2timestr(pkt[id].duration, &time_base), NULL);
-#endif        
+#endif
         usleep(time);
 
         if ( 0 == vpackets_nb)
@@ -356,7 +355,7 @@ int main(int argc, char **argv)
     if  (argc < 5)
     {
         print_usage();
-        exit (0);    
+        exit (0);
     }
 
     in_filename  = argv[1];
@@ -566,3 +565,4 @@ end:
     }
     return 0;
 }
+
