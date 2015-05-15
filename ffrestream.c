@@ -5,9 +5,13 @@
 #include "utils.h"
 
 #define MAX 1
-#define LIVE_STREAM 
-#define A_DELAY 10000;
-#define V_DELAY 10000;
+#define LIVE_STREAM
+#define MULTIPLIER 10000
+#define A_DELAY 10000
+#define V_DELAY 10000
+#define TIME100MS 100
+#define MAX_BUFF_SIZE  65535
+
 AVOutputFormat *ofmt[MAX];
 AVFormatContext *ifmt_ctx[MAX], *ofmt_ctx[MAX];
 int video_idx[MAX], audio_idx[MAX];
@@ -16,7 +20,8 @@ static int adelay = A_DELAY;
 static int vdelay = V_DELAY;
 static int apackets_nb = 0;
 static int vpackets_nb = 0;
-
+int time_100ms = 100;
+int quants = 3;
 typedef struct fifonode {
     //AVPacket *fn_data;
     void *fn_data;
@@ -140,7 +145,7 @@ void * get_tail (fifo_t *p )
     fifonode_t *fn;
     fn = p->f_tail;
     if (!fn)
-    	return;
+        return;
     else{
      // printf("Num = %d\n", *(int *)fn->fn_data);
     }
@@ -222,27 +227,31 @@ void* worker_thread(void *Param)
             if ( 0 == apackets_nb)
             {
                 astart_time = get_time_ms ();
-                printf("Current time: since the Epoch %ld ms \n",  vstart_time );
+                //printf("Current time: since the Epoch %ld ms \n",  vstart_time );
             }
             while (adelay > fifo_len (apackets_queue))
             {
                 adelta_time = get_time_ms () - astart_time;
                 fifo_add (apackets_queue, (void*) &pkt[id] );
                 //printf ("fifo_len (apackets_queue)%d\n", fifo_len (apackets_queue));
-                if  (!atime_trigger && adelta_time  >=  100 )
+                if  (!atime_trigger && adelta_time  >=  TIME100MS * quants )
                 {
                     atime_trigger++;
-                    apackets_cnt = apackets_nb;
-                    adelay = (apackets_nb *  adelay / 10000 - apackets_nb)/2 ;
+                    apackets_cnt = apackets_nb / quants;
+                    adelay = (apackets_cnt *  adelay /   MULTIPLIER - apackets_cnt) ;
                     if ( adelay < apackets_nb ) {
                         adelay = apackets_nb;
+                    }
+                    if  (MAX_BUFF_SIZE <= adelay) {
+                        adelay = MAX_BUFF_SIZE;
+                        fprintf(stderr, "Audio delay buffer going to be big %d \n",adelay);
                     }
                     printf("delta time: %ld ms , audio packets count = %d \n", adelta_time,  apackets_nb);
                 }
                 apackets_nb++;
                 if (vtime_trigger && atime_trigger && vpackets_nb && a2v_coeff == 1.0 ) {
                     a2v_coeff = (float) vpackets_cnt/(float) apackets_cnt;
-                    printf("a2v_coeff: %f , audio packets count = %d \n", a2v_coeff,  apackets_cnt);
+                    printf("a2v_coeff: %f ms , apackets = %d vpackets = %d\n", a2v_coeff, apackets_cnt, vpackets_cnt);
                     printf("adelay: %d , vdelay= %d \n" , adelay, vdelay);
                 }
 
@@ -284,7 +293,7 @@ void* worker_thread(void *Param)
 
         if ( 0 == vpackets_nb){
             vstart_time = get_time_ms ();
-            printf("Current time: since the Epoch %ld ms \n",  vstart_time );
+            //printf("Current time: since the Epoch %ld ms \n",  vstart_time );
         }
 
         while (vdelay > fifo_len (vpackets_queue))
@@ -293,30 +302,31 @@ void* worker_thread(void *Param)
 
             fifo_add (vpackets_queue, (void*) &pkt[id] );
             //printf ("fifo_len (vpackets_queue)%d\n", fifo_len (vpackets_queue));
-            if  (!vtime_trigger && vdelta_time  >=  100 )
+            if  (!vtime_trigger && vdelta_time  >=  TIME100MS * quants )
             {
                 vtime_trigger++;
-                vpackets_cnt = vpackets_nb;
-                vdelay = (vpackets_nb *  vdelay / 10000 - vpackets_nb)/2 ;
+                vpackets_cnt = vpackets_nb / quants;
+                vdelay = (vpackets_cnt *  vdelay / MULTIPLIER - vpackets_cnt) ;
                 if ( vdelay < vpackets_nb )
                     vdelay = vpackets_nb;
+                if (MAX_BUFF_SIZE <= vdelay){
+                    vdelay = MAX_BUFF_SIZE;
+                    fprintf(stderr, "Video delay buffer going to be big %d \n",vdelay);
+                }
                 printf("delta time: %ld ms , video packets count = %d \n", vdelta_time,  vpackets_nb);
             }
             vpackets_nb++;
             if (vtime_trigger && atime_trigger && apackets_nb && a2v_coeff == 1.0 ) {
                 a2v_coeff = (float) vpackets_cnt/(float) apackets_cnt;
-                printf("a2v_coeff: %f ms , audio packets count = %d \n", a2v_coeff,  vpackets_cnt);
+                printf("a2v_coeff: %f ms , apackets = %d vpackets = %d\n", a2v_coeff, apackets_cnt, vpackets_cnt);
                 printf("adelay: %d , vdelay= %d \n" , adelay, vdelay);
-
             }
         }
 
         fifo_add (vpackets_queue,  (void*)&pkt[id]);
         pkt[id] = *(AVPacket *)get_head (vpackets_queue);
         fifo_remove (vpackets_queue);
-        if ( vdelay/1000 == vpackets_nb) {
-                  printf("Current time: since the Epoch %ld ms \n",  get_time_ms ());
-        }
+
         //vpackets_nb++;
 
         ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
@@ -359,12 +369,20 @@ int main(int argc, char **argv)
     in_filename  = argv[1];
     destination = argv[2];
     out_format = argv[3];
-    vdelay = 10000 * atoi (argv[4]);
+    vdelay = MULTIPLIER * atoi (argv[4]);
+    //quants = 1;
+    if (vdelay > MULTIPLIER * 5)
+        quants = 2;
+    if (vdelay > MULTIPLIER * 10)
+        quants = 3;
+    if (vdelay > MULTIPLIER * 15)
+        quants = 4;
+
     adelay = vdelay;
     if  (0 == vdelay || 3 >= vdelay  )
     {
-        adelay = A_DELAY;
-        vdelay = V_DELAY;
+        adelay = A_DELAY ;
+        vdelay = V_DELAY ;
     }
 
     printf ("video delay = %d , audio delay = %d\n", vdelay ,adelay);
