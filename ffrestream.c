@@ -236,9 +236,9 @@ void* worker_thread(void *Param)
                 {
                     atime_trigger++;
                     apackets_cnt = apackets_nb / quants;
-                    adelay = (apackets_cnt *  adelay /   MULTIPLIER - apackets_cnt) ;
-                    if ( adelay < apackets_nb ) {
-                        adelay = apackets_nb;
+                    adelay = (apackets_cnt *  adelay /  MULTIPLIER - apackets_cnt ) ;
+                    if ( adelay < apackets_cnt ) {
+                        adelay = apackets_cnt;
                     }
                     if  (MAX_BUFF_SIZE <= adelay) {
                         adelay = MAX_BUFF_SIZE;
@@ -302,8 +302,8 @@ void* worker_thread(void *Param)
                 vtime_trigger++;
                 vpackets_cnt = vpackets_nb / quants;
                 vdelay = (vpackets_cnt *  vdelay / MULTIPLIER - vpackets_cnt) ;
-                if ( vdelay < vpackets_nb )
-                    vdelay = vpackets_nb;
+                if ( vdelay < vpackets_cnt )
+                    vdelay = vpackets_cnt;
                 if (MAX_BUFF_SIZE <= vdelay){
                     vdelay = MAX_BUFF_SIZE;
                     fprintf(stderr, "Video delay buffer going to be big %d \n",vdelay);
@@ -363,7 +363,7 @@ int main(int argc, char **argv)
     destination = argv[2];
     out_format = argv[3];
     vdelay = MULTIPLIER * atoi (argv[4]);
-    //quants = 1;
+    quants = 1;
     if (vdelay > MULTIPLIER * 5)
         quants = 2;
     if (vdelay > MULTIPLIER * 10)
@@ -372,10 +372,10 @@ int main(int argc, char **argv)
         quants = 4;
 
     adelay = vdelay;
-    if  (0 == vdelay || 3 >= vdelay  )
+    if  (0 == vdelay || quants * MULTIPLIER >= vdelay  )
     {
-        adelay = A_DELAY ;
-        vdelay = V_DELAY ;
+        adelay = A_DELAY * quants;
+        vdelay = V_DELAY * quants;
     }
 
     printf ("video delay = %d , audio delay = %d\n", vdelay ,adelay);
