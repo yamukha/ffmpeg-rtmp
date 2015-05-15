@@ -225,10 +225,8 @@ void* worker_thread(void *Param)
             pkt[id].stream_index = idxa;
 
             if ( 0 == apackets_nb)
-            {
                 astart_time = get_time_ms ();
-                //printf("Current time: since the Epoch %ld ms \n",  vstart_time );
-            }
+
             while (adelay > fifo_len (apackets_queue))
             {
                 adelta_time = get_time_ms () - astart_time;
@@ -251,7 +249,7 @@ void* worker_thread(void *Param)
                 apackets_nb++;
                 if (vtime_trigger && atime_trigger && vpackets_nb && a2v_coeff == 1.0 ) {
                     a2v_coeff = (float) vpackets_cnt/(float) apackets_cnt;
-                    printf("a2v_coeff: %f ms , apackets = %d vpackets = %d\n", a2v_coeff, apackets_cnt, vpackets_cnt);
+                    printf("a2v_coeff: %f, apackets = %d vpackets = %d\n", a2v_coeff, apackets_cnt, vpackets_cnt);
                     printf("adelay: %d , vdelay= %d \n" , adelay, vdelay);
                 }
 
@@ -260,7 +258,6 @@ void* worker_thread(void *Param)
             pkt[id] = *(AVPacket *)get_head (apackets_queue);
             fifo_remove (apackets_queue);
             ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
-            //apackets_nb++;
 
             if (ret < 0)
             {
@@ -291,10 +288,8 @@ void* worker_thread(void *Param)
 #endif        
         usleep(time);
 
-        if ( 0 == vpackets_nb){
+        if ( 0 == vpackets_nb)
             vstart_time = get_time_ms ();
-            //printf("Current time: since the Epoch %ld ms \n",  vstart_time );
-        }
 
         while (vdelay > fifo_len (vpackets_queue))
         {
@@ -318,7 +313,7 @@ void* worker_thread(void *Param)
             vpackets_nb++;
             if (vtime_trigger && atime_trigger && apackets_nb && a2v_coeff == 1.0 ) {
                 a2v_coeff = (float) vpackets_cnt/(float) apackets_cnt;
-                printf("a2v_coeff: %f ms , apackets = %d vpackets = %d\n", a2v_coeff, apackets_cnt, vpackets_cnt);
+                printf("a2v_coeff: %f, apackets = %d vpackets = %d\n", a2v_coeff, apackets_cnt, vpackets_cnt);
                 printf("adelay: %d , vdelay= %d \n" , adelay, vdelay);
             }
         }
@@ -326,8 +321,6 @@ void* worker_thread(void *Param)
         fifo_add (vpackets_queue,  (void*)&pkt[id]);
         pkt[id] = *(AVPacket *)get_head (vpackets_queue);
         fifo_remove (vpackets_queue);
-
-        //vpackets_nb++;
 
         ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
 
