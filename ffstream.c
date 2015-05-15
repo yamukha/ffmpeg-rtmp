@@ -327,8 +327,8 @@ void* worker_thread(void *Param)
                 //SaveAFrames (aframe, data_size);
             }
 
-            uint8_t *input_samples;
-            uint8_t *converted_samples;
+            //uint8_t **input_samples  = ( uint8_t **)ain_frame->extended_data;
+            uint8_t **converted_samples;
 
             converted_samples = ( uint8_t *) calloc(enc_stream->codec->channels, sizeof(uint8_t)); //
             if ( NULL == converted_samples)
@@ -336,19 +336,19 @@ void* worker_thread(void *Param)
                 fprintf(stderr, "Could not allocate converted input sample pointers\n");
             }
 
-            input_samples = ( uint8_t *) calloc(enc_stream->codec->channels, sizeof(uint8_t)); //
-            if ( NULL == input_samples)
-            {
-                fprintf(stderr, "Could not allocate converted input sample pointers\n");
-            }
+            //input_samples = ( uint8_t *) calloc(enc_stream->codec->channels, sizeof(uint8_t)); //
+            //if ( NULL == input_samples)
+           // {
+           //     fprintf(stderr, "Could not allocate converted input sample pointers\n");
+           // }
 
-            av_samples_alloc(converted_samples, NULL,enc_stream->codec->channels,//
+            av_samples_alloc(converted_samples, NULL,enc_stream->codec->channels,
                  ain_frame->nb_samples, enc_stream->codec->sample_fmt, 0);
 
-            ret = swr_convert(resample_context,	(const uint8_t * const*) converted_samples, ain_frame->nb_samples,
-                              (const uint8_t * const*)ain_frame->data, ain_frame->nb_samples);
+            ret = swr_convert(resample_context, ( uint8_t **) converted_samples, ain_frame->nb_samples,
+                              (const uint8_t **)ain_frame->extended_data, ain_frame->nb_samples);
 
-            ain_frame->data[0]= converted_samples;
+            ain_frame->extended_data = converted_samples;
             ain_frame->pts =  pktCount;
             SaveAFrames (ain_frame, av_get_bytes_per_sample(enc_stream->codec->sample_fmt));
             ret = avcodec_encode_audio2(enc_stream->codec, &oapkt, ain_frame, &got_apacket);
@@ -357,7 +357,7 @@ void* worker_thread(void *Param)
                 exit(1);
             }
 
-            av_freep(&input_samples[0]);
+           // av_freep(&input_samples[0]);
             av_freep(&converted_samples[0]);
 
             if (got_apacket) {
@@ -458,7 +458,7 @@ void* worker_thread(void *Param)
          if(img_convert_ctxi == NULL)
              img_convert_ctxi = sws_getContext(iw, ih, iPixFormat, pw, ph,pPixFormat,SWS_BICUBIC, NULL, NULL, NULL);
 
-         sws_scale(img_convert_ctxi, pinFrame->data, pinFrame->linesize, 0, ih , pFrameRGB->data, pFrameRGB->linesize);
+         sws_scale(img_convert_ctxi, (const uint8_t * const*) pinFrame->data, pinFrame->linesize, 0, ih , pFrameRGB->data, pFrameRGB->linesize);
 
          int jj ;
          // change bits in pix map
@@ -477,7 +477,7 @@ void* worker_thread(void *Param)
 
          if(img_convert_ctxo == NULL)
              img_convert_ctxo = sws_getContext(pw, ph, pPixFormat, ow, oh,oPixFormat,SWS_BICUBIC, NULL, NULL, NULL);
-         sws_scale(img_convert_ctxo, pFrameRGB->data, pFrameRGB->linesize, 0, ph , poutFrame->data, poutFrame->linesize);
+         sws_scale(img_convert_ctxo, (const uint8_t * const*) pFrameRGB->data, pFrameRGB->linesize, 0, ph , poutFrame->data, poutFrame->linesize);
 
          //if ( 1 == frameCount )
          if ( kbhit ())
