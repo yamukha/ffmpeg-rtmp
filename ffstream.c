@@ -330,7 +330,7 @@ void* worker_thread(void *Param)
             //uint8_t **input_samples  = ( uint8_t **)ain_frame->extended_data;
             uint8_t **converted_samples;
 
-            converted_samples = ( uint8_t *) calloc(enc_stream->codec->channels, sizeof(uint8_t)); //
+            converted_samples = ( uint8_t **) calloc(enc_stream->codec->channels, sizeof(uint8_t)); //
             if ( NULL == converted_samples)
             {
                 fprintf(stderr, "Could not allocate converted input sample pointers\n");
