@@ -3,6 +3,7 @@
 #include <libswscale/swscale.h>
 #include <libswresample/swresample.h>
 #include "libavutil/opt.h"
+#include "libavutil/fifo.h"
 
 #include <pthread.h>
 #include <unistd.h>
@@ -109,6 +110,75 @@ int InitVideoDecoder (int i, int k )
     return 0;
 }
 
+int InitAudioEncoder (int i, int k)
+{
+    //int aencID = AV_CODEC_ID_AAC;
+    int aencID = ifmt_ctx[i]->streams[k]->codec->codec_id;
+    pAenc=avcodec_find_encoder(aencID);
+    if(NULL == pAenc)
+    {
+        fprintf(stderr,"Could not find needed audio encoder\n"); exit(1);
+    }
+    //avformat_alloc_output_context2(&ovc, NULL, out_format, out_filename); // no need 2nd time
+    ovc->audio_codec_id = aencID;
+    ovc->oformat->audio_codec = aencID;
+    pAencCtx= avcodec_alloc_context3(pAenc);
+    pAencCtx->codec_id = aencID;
+    pAencCtx->codec_type = AVMEDIA_TYPE_AUDIO;
+
+    audio_st = avformat_new_stream(ovc, pAenc);
+    if (!audio_st) {
+        fprintf(stderr, "Could not allocate video stream\n");
+        exit(1);
+    }
+
+    audio_st->id = ovc->nb_streams;
+    audio_st->time_base = ifmt_ctx[i]->streams[k]->codec->time_base;
+    audio_st->codec->codec_tag = 0;
+    if (ovc->oformat->flags & AVFMT_GLOBALHEADER)
+        { audio_st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
+
+
+    fprintf(stdout," Audio encoder fillup stream #%d\n", ovc->nb_streams);
+    pAencCtx = audio_st->codec;
+    pAencCtx->bit_rate = ifmt_ctx[i]->streams[k]->codec->bit_rate ;
+
+    fprintf(stderr, "pAencCtx->bit_rate %d\n", ifmt_ctx[i]->streams[k]->codec->bit_rate);
+    pAencCtx->sample_rate = ifmt_ctx[i]->streams[k]->codec->sample_rate ;
+    fprintf(stderr, "pAencCtx->sample_rate %d\n", ifmt_ctx[i]->streams[k]->codec->sample_rate);
+    pAencCtx->channels =  ifmt_ctx[i]->streams[k]->codec->channels;
+    fprintf(stderr, "pAencCtx->channels %d\n", ifmt_ctx[i]->streams[k]->codec->channels);
+    pAencCtx->sample_fmt = ifmt_ctx[i]->streams[k]->codec->sample_fmt;
+
+    fprintf(stderr, "pAencCtx->sample_fmt %d\n", ifmt_ctx[i]->streams[k]->codec->sample_fmt);
+    pAencCtx->channel_layout = av_get_default_channel_layout(pAencCtx->channels);
+
+    int data_size =  av_get_bytes_per_sample(ifmt_ctx[i]->streams[k]->codec->sample_fmt);
+        //int channel_size =  ain_frame->nb_samples * sizeof(uint8_t);
+        // int frame_size =  channel_size * data_size;
+    pAencCtx->frame_size = 1024;
+
+
+    if ( AV_CODEC_ID_AAC == ovc->oformat->audio_codec)
+    {
+        //pAencCtx->bit_rate = 96000;
+        pAencCtx->sample_fmt = AV_SAMPLE_FMT_S16; // AV_SAMPLE_FMT_S16P for MP3
+        // pAencCtx->frame_size = 1152 * data_size;
+        //pAencCtx->channel_layout = AV_CH_LAYOUT_5POINT1;
+        //pAencCtx->sample_rate = 48000;
+        // pAencCtx->->frame_size = ;
+    }
+    //pAencCtx->time_base = (AVRational){1, m_globalData.GetConfig().Audio().Rate()};
+    //m_audioStream->time_base = pAencCtx->time_base;
+    //pAencCtx = fillupVContexts (pVencCtx);
+
+    ovc->bit_rate += pAencCtx->bit_rate;
+    if (avcodec_open2(pAencCtx, pAenc, NULL) < 0) {
+        fprintf(stderr, "Could not open audio encoder\n");
+        exit(1);
+    }
+    fprintf(stdout," Audio encoder opened\n");
+}
 int InitVideoEncoder (int i, int k)
 {
     if (ifmt_ctx[i]->streams[k]->codec->codec_type == AVMEDIA_TYPE_VIDEO)
@@ -285,13 +355,19 @@ void* worker_thread(void *Param)
             int got_apacket = 0;
             int len;
             int adata_size = 0;
+            uint64_t apts = 0;
 
             AVPacket oapkt ;
+            AVPacket apkt ;
             oapkt.data = NULL;
             oapkt.size = 0;
-            oapkt.flags |= AV_PKT_FLAG_KEY;
-            oapkt.pts = oapkt.dts = pktCount;
+            apkt.data = NULL;
+            apkt.size = 0;
+
+           // oapkt.flags |= AV_PKT_FLAG_KEY;
+            //oapkt.pts = oapkt.dts = pktCount;
             av_init_packet(&oapkt);
+            av_init_packet(&apkt);
             oapkt.pos = -1;
             //ovc->streams [pkt[id].stream_index]->codec->coded_frame->pts = pktCount; // seg fault
 
@@ -315,64 +391,125 @@ void* worker_thread(void *Param)
             }
 
             adata_size += len;
-            if (!afinished)
-                continue;
 
-            if (afinished) {
-                int data_size = av_get_bytes_per_sample(in_stream->codec->sample_fmt);
-                if (data_size < 0) {
-                    fprintf(stderr, "Failed to calculate data size\n");
-                    continue;
-                }
-                //SaveAFrames (aframe, data_size);
+            int data_size =  av_get_bytes_per_sample(in_stream->codec->sample_fmt);
+            int channel_size =  ain_frame->nb_samples * sizeof(uint8_t);
+            int frame_size = channel_size * data_size;
+            int osize = av_get_bytes_per_sample(enc_stream->codec->sample_fmt);
+            int frame_bytes = enc_stream->codec->frame_size * osize * enc_stream->codec->channels;
+            int nb_samples = frame_bytes / (enc_stream->codec->channels * av_get_bytes_per_sample(enc_stream->codec->sample_fmt));
+
+            enc_stream->codec->frame_size = frame_size; // fix for MP3 ain_frame
+            av_opt_set_int(resample_context, "frame_size", frame_size,  0);
+            swr_init(resample_context);
+
+            if (data_size < 0) {
+                fprintf(stderr, "Failed to calculate data size\n");
+                continue;
             }
 
-            //uint8_t **input_samples  = ( uint8_t **)ain_frame->extended_data;
             uint8_t **converted_samples;
-
-            converted_samples = ( uint8_t **) calloc(enc_stream->codec->channels, sizeof(uint8_t)); //
+            converted_samples = ( uint8_t **) calloc(frame_size,sizeof(uint8_t)); //
             if ( NULL == converted_samples)
             {
                 fprintf(stderr, "Could not allocate converted input sample pointers\n");
             }
 
-            //input_samples = ( uint8_t *) calloc(enc_stream->codec->channels, sizeof(uint8_t)); //
-            //if ( NULL == input_samples)
-           // {
-           //     fprintf(stderr, "Could not allocate converted input sample pointers\n");
-           // }
+            uint8_t *buf = ain_frame->data[0];
+            int buf_size = ain_frame->linesize[0];
+            uint8_t *audio_data_buf;
+
+            audio_data_buf = ( uint8_t *) calloc(frame_size,sizeof(uint8_t)); //
+            if ( NULL == audio_data_buf)
+            {
+                fprintf(stderr, "Could not allocate converted input sample pointers\n");
+            }
+
+            if (afinished) {
+            //SaveAFrames (aframe, data_size);
+
+            apts = ain_frame->pts;
+            int n_out =  (int ) (ain_frame->nb_samples * ( float )in_stream->codec->sample_rate / (float) in_stream->codec->sample_rate);
+            aout_frame->nb_samples = n_out;
 
             av_samples_alloc(converted_samples, NULL,enc_stream->codec->channels,
-                 ain_frame->nb_samples, enc_stream->codec->sample_fmt, 0);
+            aout_frame->nb_samples, enc_stream->codec->sample_fmt, 0);
 
-            ret = swr_convert(resample_context, ( uint8_t **) converted_samples, ain_frame->nb_samples,
+           // ain_frame->extended_data = converted_samples;
+           // av_frame_copy_props(aout_frame, ain_frame);
+           // av_rescale_q(ain_frame->pts,  time_base, (AVRational){ 1, enc_stream->codec->sample_rate });
+            ret = swr_convert(resample_context, converted_samples, aout_frame->nb_samples,
                               (const uint8_t **)ain_frame->extended_data, ain_frame->nb_samples);
 
-            ain_frame->extended_data = converted_samples;
-            ain_frame->pts =  pktCount;
-            SaveAFrames (ain_frame, av_get_bytes_per_sample(enc_stream->codec->sample_fmt));
-            ret = avcodec_encode_audio2(enc_stream->codec, &oapkt, ain_frame, &got_apacket);
             if (ret < 0) {
-                fprintf(stderr, "Error encoding audio frame: %s\n", av_err2str(ret));
+                fprintf(stderr, "Error swr_convert audio frame: %s\n", av_err2str(ret));
                 exit(1);
             }
 
-           // av_freep(&input_samples[0]);
-            av_freep(&converted_samples[0]);
+            ain_frame->extended_data = converted_samples;
+            ain_frame->pts = pktCount; // apts
+
+            // av_frame_unref(aout_frame);
+            avcodec_fill_audio_frame(aout_frame,enc_stream->codec->channels,enc_stream->codec->sample_fmt,
+            ain_frame->extended_data[0], frame_bytes, 1);
+
+            aout_frame->pts = pktCount;
+            aout_frame->linesize [0] = nb_samples;
+            aout_frame->nb_samples = n_out;
+            // SaveAFrames (aout_frame, av_get_bytes_per_sample(enc_stream->codec->sample_fmt));
+//            if (pktCount < 5){
+//                printf ( "formats: in = %d, out = %d\n", in_stream->codec->sample_fmt, enc_stream->codec->sample_fmt );
+//                printf ("aout : nb_samples =%d , frame size =%d , %d \n ", aout_frame->nb_samples, frame_size, enc_stream->codec->frame_size );
+//                int jj;
+//                for (jj =0 ;jj <  aout_frame->nb_samples  ; jj++) {
+//                    if (ain_frame->extended_data[jj] != aout_frame->extended_data[jj])
+//                        printf ("@ %d = ,  ai : =%d, ao= %d\n ", jj, ain_frame->extended_data[jj], aout_frame->extended_data[jj]);
+//                }
+//            }
+
+            ret = avcodec_encode_audio2(enc_stream->codec, &oapkt, aout_frame, &got_apacket); // need aout_frame
+            if (ret < 0) {
+                  fprintf(stderr, "Error encoding audio frame: %s\n", av_err2str(ret));
+                //exit(1);
+                }
+            } // afinished
 
             if (got_apacket) {
-               // ret = write_frame(ovc, &enc_stream->codec->time_base, enc_stream, &oapkt);
-               rescaleTimeBase(&oapkt, &pkt[id], in_stream->time_base,enc_stream->time_base );
-               //ret = av_interleaved_write_frame(ovc, &oapkt);
-               av_frame_free (&ain_frame);
-               av_frame_free (&aout_frame);
-               av_free_packet(&oapkt);
-                if (ret < 0) {
-                    fprintf(stderr, "Error while writing audio frame: %s\n", av_err2str(ret));
-                    //exit(1);
-                }
+                int pkthi ;
+                int pktho ;
+               //av_copy_packet (&oapkt, &pkt[id]);
+               // memcpy (oapkt.data,apkt.data, oapkt.size );
+               // memcpy (oapkt.data,pkt[id].data, 4 );
+                memcpy (&pktho,oapkt.data, 4 );
+                memcpy (&pkthi,pkt[id].data, 4 );
+                oapkt.duration = pkt[id].duration;
+                oapkt.pos = pkt[id].pos;
+                oapkt.pts = pkt[id].pts;
+                oapkt.dts = pkt[id].dts;
+                oapkt.stream_index = pkt[id].stream_index;
 
-            }
+                if ((pktho & 0xffff) != 0xfbff)
+                {
+                    printf ("audio copy done pkthi = %x, pktho = %x \n", pkthi , pktho);
+                    printf   ("pktCount %d\n", pktCount );
+                }
+                else
+                    printf (".");
+
+                //rescaleTimeBase(&oapkt, &pkt[id], in_stream->time_base,enc_stream->time_base );
+                ret = av_interleaved_write_frame(ovc,&oapkt);
+                //ret = av_interleaved_write_frame(ovc, &pkt[id]);
+                av_frame_free (&ain_frame);
+                av_frame_free (&aout_frame);
+                av_free_packet(&oapkt);
+                av_free_packet(&apkt);
+                if (ret < 0) {
+                   fprintf(stderr, "Error while writing audio frame: %s\n", av_err2str(ret));
+                }
+            } // got_apacket
+            else
+                printf (",");
+           //av_freep(&converted_samples[0]);
 
 //            pkt[id].pts = av_rescale_q_rnd(pkt[id].pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
 //            pkt[id].dts = av_rescale_q_rnd(pkt[id].dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
@@ -384,9 +521,10 @@ void* worker_thread(void *Param)
 #ifdef COPY_VPACKETS
            ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
 #else
-           ret = av_interleaved_write_frame(ovc, &pkt[id]);
+          // ret = av_interleaved_write_frame(ovc, &pkt[id]);
+
 #endif
-           //ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
+          //ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
 #else
            ret = av_interleaved_write_frame(ovc, &pkt[id]);
 #endif
@@ -397,12 +535,14 @@ void* worker_thread(void *Param)
             }     
         
             av_free_packet(&pkt[id]);
+            pktCount++;
             continue;
         }
 
         // video packets handler
-        if (pkt[id].stream_index != idx)
+        if (pkt[id].stream_index != idx) {
             continue;
+        }
 
         AVStream *in_stream = ifmt_ctx[id]->streams[pkt[id].stream_index];
         AVStream *out_stream = ofmt_ctx[id]->streams[pkt[id].stream_index];
@@ -660,66 +800,7 @@ int main(int argc, char **argv)
             {
                 if (ofmte[i]->audio_codec != AV_CODEC_ID_NONE) {
 #ifdef COPY_APACKETS
-                //                   InitAudioEncoder (i,k);
-                //int aencID = AV_CODEC_ID_AAC;
-                int aencID = ifmt_ctx[i]->streams[k]->codec->codec_id;
-                pAenc=avcodec_find_encoder(aencID);
-                if(NULL == pAenc)
-                    { fprintf(stderr,"Could not find needed audio encoder\n"); exit(1); }
-
-                //avformat_alloc_output_context2(&ovc, NULL, out_format, out_filename); // no need 2nd time
-
-                ovc->audio_codec_id = aencID;
-                ovc->oformat->audio_codec = aencID;
-
-                pAencCtx= avcodec_alloc_context3(pAenc);
-                pAencCtx->codec_id = aencID;
-                pAencCtx->codec_type = AVMEDIA_TYPE_AUDIO;
-
-                audio_st = avformat_new_stream(ovc, pAenc);
-                if (!audio_st) {
-                    fprintf(stderr, "Could not allocate video stream\n");
-                    exit(1);
-                }
-
-                audio_st->id = ovc->nb_streams;
-                audio_st->time_base = ifmt_ctx[i]->streams[k]->codec->time_base;
-                audio_st->codec->codec_tag = 0;
-                if (ovc->oformat->flags & AVFMT_GLOBALHEADER)
-                    { audio_st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
-
-
-                fprintf(stdout," Audio encoder fillup stream #%d\n", ovc->nb_streams);
-                pAencCtx = audio_st->codec;
-                pAencCtx->bit_rate = ifmt_ctx[i]->streams[k]->codec->bit_rate ;
-
-                fprintf(stderr, "pAencCtx->bit_rate %d\n", ifmt_ctx[i]->streams[k]->codec->bit_rate);
-                pAencCtx->sample_rate = ifmt_ctx[i]->streams[k]->codec->sample_rate ;
-                fprintf(stderr, "pAencCtx->sample_rate %d\n", ifmt_ctx[i]->streams[k]->codec->sample_rate);
-                pAencCtx->channels =  ifmt_ctx[i]->streams[k]->codec->channels;
-                fprintf(stderr, "pAencCtx->channels %d\n", ifmt_ctx[i]->streams[k]->codec->channels);
-                pAencCtx->sample_fmt = ifmt_ctx[i]->streams[k]->codec->sample_fmt;
-
-                fprintf(stderr, "pAencCtx->sample_fmt %d\n", ifmt_ctx[i]->streams[k]->codec->sample_fmt);
-                pAencCtx->channel_layout = av_get_default_channel_layout(pAencCtx->channels);
-                if ( AV_CODEC_ID_AAC == ovc->oformat->audio_codec)
-                {
-                    //pAencCtx->bit_rate = 96000;
-                    pAencCtx->sample_fmt = AV_SAMPLE_FMT_S16;
-                    pAencCtx->channel_layout = AV_CH_LAYOUT_5POINT1;
-                    //pAencCtx->sample_rate = ;
-                }
-                //pAencCtx->time_base = (AVRational){1, m_globalData.GetConfig().Audio().Rate()};
-                //m_audioStream->time_base = pAencCtx->time_base;
-                //pAencCtx = fillupVContexts (pVencCtx);
-
-                ovc->bit_rate += pAencCtx->bit_rate;
-                if (avcodec_open2(pAencCtx, pAenc, NULL) < 0) {
-                    fprintf(stderr, "Could not open audio encoder\n");
-                    exit(1);
-                }
-
-                fprintf(stdout," Audio encoder opened\n");
+                     InitAudioEncoder (i,k);
 #endif
                  } // audio encoder init
 
