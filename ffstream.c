@@ -5,6 +5,16 @@
 #include "libavutil/opt.h"
 #include "libavutil/fifo.h"
 
+//#include "/usr/include/ImageMagick/magick/magick-config.h"
+//#include "/usr/include/ImageMagick/magick/MagickCore.h"
+//#include "/usr/include/SDL/SDL_image.h"
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb/stb_image.h"
+
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#define STB_IMAGE_RESIZE_STATIC
+#include "stb/stb_image_resize.h"
+
 #include <pthread.h>
 #include <unistd.h>
 
@@ -26,6 +36,11 @@ AVCodecContext  *pVencCtx, *pAencCtx;
 AVCodec         *pVCodec,  *pACodec;
 AVCodec         *pAenc, *pVenc;
 AVStream *audio_st, *video_st;
+unsigned char* pix_buffer;
+int imgh;
+int imgw;
+int bytesPerPixel;
+int img_scale = 5;
 
 int video_idx[MAX], audio_idx[MAX];
 AVPacket pkt[MAX];
@@ -158,7 +173,6 @@ int InitAudioEncoder (int i, int k)
         // int frame_size =  channel_size * data_size;
     pAencCtx->frame_size = 1024;
 
-
     if ( AV_CODEC_ID_AAC == ovc->oformat->audio_codec)
     {
         //pAencCtx->bit_rate = 96000;
@@ -168,6 +182,12 @@ int InitAudioEncoder (int i, int k)
         //pAencCtx->sample_rate = 48000;
         // pAencCtx->->frame_size = ;
     }
+    if ( AV_CODEC_ID_MP3 == ovc->oformat->audio_codec)
+    {
+        pAencCtx->sample_fmt = AV_SAMPLE_FMT_S16P;
+        //pAencCtx->sample_rate = 22050;
+    }
+
     //pAencCtx->time_base = (AVRational){1, m_globalData.GetConfig().Audio().Rate()};
     //m_audioStream->time_base = pAencCtx->time_base;
     //pAencCtx = fillupVContexts (pVencCtx);
@@ -334,8 +354,6 @@ void* worker_thread(void *Param)
             AVRational time_base = ifmt_ctx[id]->streams[idxa]->time_base;
             AVStream *enc_stream = ovc->streams[pkt[id].stream_index];
 
-            //av_opt_set_int(resample_context, "in_channel_layout",  AV_CH_LAYOUT_5POINT1, 0);
-            //av_opt_set_int(resample_context, "out_channel_layout", AV_CH_LAYOUT_STEREO,  0);
             av_opt_set_int(resample_context, "in_channel_layout",  in_stream->codec->channel_layout, 0);
             av_opt_set_int(resample_context, "out_channel_layout", enc_stream->codec->channel_layout,  0);
             av_opt_set_int(resample_context, "in_sample_rate",     in_stream->codec->sample_rate,                0);
@@ -390,8 +408,6 @@ void* worker_thread(void *Param)
                 continue;
             }
 
-            adata_size += len;
-
             int data_size =  av_get_bytes_per_sample(in_stream->codec->sample_fmt);
             int channel_size =  ain_frame->nb_samples * sizeof(uint8_t);
             int frame_size = channel_size * data_size;
@@ -400,8 +416,6 @@ void* worker_thread(void *Param)
             int nb_samples = frame_bytes / (enc_stream->codec->channels * av_get_bytes_per_sample(enc_stream->codec->sample_fmt));
 
             enc_stream->codec->frame_size = frame_size; // fix for MP3 ain_frame
-            av_opt_set_int(resample_context, "frame_size", frame_size,  0);
-            swr_init(resample_context);
 
             if (data_size < 0) {
                 fprintf(stderr, "Failed to calculate data size\n");
@@ -490,8 +504,9 @@ void* worker_thread(void *Param)
 
                 if ((pktho & 0xffff) != 0xfbff)
                 {
-                    printf ("audio copy done pkthi = %x, pktho = %x \n", pkthi , pktho);
-                    printf   ("pktCount %d\n", pktCount );
+                    // printf ("audio copy done pkthi = %x, pktho = %x \n", pkthi , pktho);
+                    // printf   ("pktCount %d\n", pktCount );
+                    printf ("~");
                 }
                 else
                     printf (".");
@@ -567,7 +582,7 @@ void* worker_thread(void *Param)
         //AV_PIX_FMT_YUV420P AV_PIX_FMT_RGB24 AV_PIX_FMT_BGRA AV_PIX_FMT_YUVJ420P
 
         enum AVPixelFormat oPixFormat = AV_PIX_FMT_YUV420P;
-        enum AVPixelFormat pPixFormat = AV_PIX_FMT_RGB24;
+        enum AVPixelFormat pPixFormat = AV_PIX_FMT_RGBA; //
         enum AVPixelFormat iPixFormat = in_stream->codec->pix_fmt;
 
         pinFrame=av_frame_alloc(); // Allocate video frame
@@ -601,14 +616,20 @@ void* worker_thread(void *Param)
          sws_scale(img_convert_ctxi, (const uint8_t * const*) pinFrame->data, pinFrame->linesize, 0, ih , pFrameRGB->data, pFrameRGB->linesize);
 
          int jj ;
+         int ll = 0;
          // change bits in pix map
-         for (jj = 0 ; jj < num_BytesRGB/8 ; )
+         for (jj = 0 ; jj < pw * imgh ; jj++)
          {
-            bufferRGB [jj] = 255;
-            bufferRGB [jj+1] = 255;
-            bufferRGB [jj+2] = 255;
-            bufferRGB [jj+3] = 255;
-            jj +=4;
+             if (0 == (jj * bytesPerPixel ) % ( pw * bytesPerPixel) )
+             {
+                 int kk;
+                 for (kk = 0; kk < imgw*bytesPerPixel ; kk++ )
+                 {
+                     if ( 255 != pix_buffer [ ll * imgw *bytesPerPixel+ kk] && 0 != pix_buffer [ ll * imgw *bytesPerPixel+ kk])
+                         bufferRGB [ll * pw *bytesPerPixel + kk] = pix_buffer [ ll * imgw *bytesPerPixel+ kk];
+                 }
+                 ll++;
+             }
          }
 
          poutFrame->height = 480;
@@ -711,6 +732,32 @@ int main(int argc, char **argv)
     memset(ofmte_ctx, 0, sizeof(ofmte_ctx));
     memset(ifmt_ctx, 0, sizeof(ifmt_ctx));
     memset(video_idx, -1, sizeof(video_idx));
+
+    char* img_infile = "lena.jpeg"; // "logo.jpg" "lena.jpeg"
+
+    unsigned char* pixeldata = stbi_load(img_infile, &imgw, &imgh, &bytesPerPixel, 4);
+    //int pix_buffer_size = imgw * imgh * bytesPerPixel;
+    //pix_buffer = malloc (pix_buffer_size);
+    //memcpy (pix_buffer, pixeldata, pix_buffer_size);
+    // if you have already read the image file data into a buffer:
+  //  unsigned char* pixeldata2 = stbi_load_from_memory(bufferWithImageData, bufferLength, &width, &height, &bytesPerPixel, 0);
+    if(pixeldata == NULL) {
+        printf("Some error happened: %sn", stbi_failure_reason());
+        exit (-1);
+    }
+    else
+        printf("loaded %s: w = %d , h = %d , b = %d\n", img_infile, imgw, imgh, bytesPerPixel);
+
+    bytesPerPixel = 4;
+    int out_w = imgw/img_scale;
+    int out_h = imgh/img_scale;
+    int pix_buffer_size = out_w*out_h*bytesPerPixel;
+    pix_buffer = (unsigned char*) malloc(pix_buffer_size);
+    stbir_resize_uint8(pixeldata, imgw, imgh, 0, pix_buffer, out_w, out_h, 0, bytesPerPixel);
+    imgw = out_w ;
+    imgh = out_h ;
+    //pix_buffer_size = pix_buffer_osize;
+    //memcpy (pix_buffer, pixeldata, pix_buffer_size);
 
     if  (argc != 4)
     {
