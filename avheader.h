@@ -8,6 +8,8 @@
 #ifndef AVHEADER_H_
 #define AVHEADER_H_
 
+#define FILTER_SIMPLE_BLUR
+
 #include <libavutil/timestamp.h>
 #include <libavformat/avformat.h>
 #include <libswscale/swscale.h>

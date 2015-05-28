@@ -544,25 +544,23 @@ void* worker_thread(void *Param)
 
          time = get_time_ms ();
          crop (bufferRGB, pw,ph, tga,ox,oy,dx,dy,bytesPerPixel);
-         int bscale = 4;
+         int bscale = 8;
          int dys = dy/bscale;
          int dxs = dx/bscale;
 
-         // blur over resize
+#ifdef FILTER_SIMPLE_BLUR
          stbir_resize_uint8(tga, dx, dy, 0, bbox, dxs, dys, 0, bytesPerPixel);
          stbir_resize_uint8(bbox, dxs, dys, 0, blured_box, dx, dy, 0, bytesPerPixel);
          img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
          //img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
          //img_filter ( TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+#else
+         memcpy (blured_box, tga, dx* dy * 4 * sizeof (uint8_t));
+         img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+         //img_filter (TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+#endif
 
-         // filter
-         //memcpy (blured_box, tga, dx* dy * 4 * sizeof (uint8_t));
-         //img_filter (FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
-
-         if ( 1 == frameCount){
-
-         }
-//         img_filter ( kernel ,MATRIX_SIZE,pw,ph, 0, 0, 4, bufferRGB, rbuffer);
+         //img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE,pw,ph, 0, 0, 4, bufferRGB, rbuffer);
 
          overlay (bufferRGB, pw,ph, blured_box,ox,oy,dx,dy,bytesPerPixel);
          long cTime = get_time_ms() - time;
@@ -674,9 +672,11 @@ int main(int argc, char **argv)
     unsigned char tga_header [TGA_HEADER_SIZE] = {0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,32,0 };
     fill_TGA_header(tga_header, 2, 640, 480, 1);
     float factor;
+#ifdef FILTER_SIMPLE_BLUR
     do_kernel(MATRIX_SIZE, kernel, FILL_BY_1S, &factor );
-    //memcpy (kernel, filter, MATRIX_SIZE * MATRIX_SIZE * (sizeof(float)));
-
+#else
+    memcpy (kernel, filter, MATRIX_SIZE * MATRIX_SIZE * (sizeof(float)));
+#endif
     int ret, i = 0;
     static int video_stream_idx = -1, audio_stream_idx = -1;
 
