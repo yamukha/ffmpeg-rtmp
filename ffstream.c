@@ -1,18 +1,3 @@
-#include <libavutil/timestamp.h>
-#include <libavformat/avformat.h>
-#include <libswscale/swscale.h>
-#include <libswresample/swresample.h>
-#include "libavutil/opt.h"
-#include "libavutil/fifo.h"
-
-#include <gd.h>
-
-#define MATRIX_SIZE 3
-#define KERNEL_HALF_SIZE ((MATRIX_SIZE * MATRIX_SIZE + 1)/2)
-#define FILL1S 1
-#define LEVEL_WHITE 0
-#define LEVEL_BLACK 255
-
 #include <pthread.h>
 #include <unistd.h>
 
@@ -20,10 +5,17 @@
 #include "filter.h"
 #include "stb_defs.h"
 
+#include "avheader.h"
+
 #define MAX 1
 #define LIVE_STREAM 
 //#define COPY_VPACKETS
 #define COPY_APACKETS
+
+#define MATRIX_SIZE 3
+#define KERNEL_HALF_SIZE ((MATRIX_SIZE * MATRIX_SIZE + 1)/2)
+#define LEVEL_WHITE 0
+#define LEVEL_BLACK 255
 
 char *in_filename, *destination, *out_format ;
 char out_filename[64];
@@ -245,73 +237,10 @@ int InitVideoEncoder (int i, int k)
             video_st->codec->codec_tag = 0;
             if (ovc->oformat->flags & AVFMT_GLOBALHEADER)
                 { video_st->codec->flags |= CODEC_FLAG_GLOBAL_HEADER;}
-
         }
     }
     return 0;
 }
-
-int rescaleTimeBase(AVPacket *out_pkt, AVPacket *base_pkt, AVRational in_tb, AVRational out_tb )
-{
-    if (out_pkt->pts != AV_NOPTS_VALUE)
-        out_pkt->pts = av_rescale_q(base_pkt->pts, in_tb,out_tb );
-    if (out_pkt->dts != AV_NOPTS_VALUE)
-        out_pkt->dts = av_rescale_q(base_pkt->dts, in_tb, out_tb);
-   //  fprintf (stdout, "pts %ld, dts %ld  \n",out_pkt.pts, out_pkt.dts);
-    return 0;
-}
-
-void SaveAFrames (AVFrame *pFrame, int channels )
-{
-    FILE *pFile;
-    char filename[32];
-    int  y;
-    // Open file
-    sprintf(filename, "audio.raw");
-    pFile=fopen(filename, "a");
-    if(pFile==NULL)
-        return;
-    int i, ch;
-    for (i=0; i< pFrame->nb_samples ; i++)
-        for (ch=0; ch < channels; ch++)
-    fwrite(pFrame->data[ch] + channels*i, 1, channels, pFile);
-    fclose(pFile);
-}
-
-void SaveVFrame(AVFrame *pFrame, int width, int height, int iFrame)
-{
-    FILE *pFile;
-    char filename[32];
-    int  y;
-    // Open file
-    sprintf(filename, "frameRGB%d.ppm", iFrame);
-    pFile=fopen(filename, "wb");
-    if(pFile==NULL)
-        return;
-    // Write header
-    fprintf(pFile, "P6\n%d %d\n255\n", width, height);
-
-    // Write pixel data
-    for(y=0; y<height; y++)
-        fwrite(pFrame->data[0]+y*pFrame->linesize[0], 1, width*3, pFile); // width*3
-    fclose(pFile);
-    printf ("RGB frame written \n");
-}
-
-static void pgm_save(unsigned char *buf, int wrap, int xsize, int ysize, int iFrame)
-{
-    FILE *f;
-    int i;
-    char filename[32];
-
-    sprintf(filename, "frame%d.ppm", iFrame);
-    f=fopen(filename,"w");
-    fprintf(f,"P5\n%d %d\n%d\n",xsize,ysize,255);
-    for(i=0;i<ysize;i++)
-       fwrite(buf + i * wrap,1,xsize,f);
-     fclose(f);
-     printf ("frame written \n");
- }
 
 void* worker_thread(void *Param)
 {
@@ -591,12 +520,6 @@ void* worker_thread(void *Param)
         pFrameRGB=av_frame_alloc();
         poutFrame=av_frame_alloc();
 
-//        parser = av_parser_init(AV_CODEC_ID_H264);
-//        if(!parser) {
-//            fprintf(stderr,"Erorr: cannot create H264 parser.\n");
-//            exit (-1);
-//        }
-
         int num_inBytes=avpicture_get_size(iPixFormat, iw, ih);
         uint8_t* in_buffer=(uint8_t *)av_malloc(num_inBytes*sizeof(uint8_t));
         avpicture_fill((AVPicture *)pinFrame, in_buffer,iPixFormat, iw, ih);
@@ -621,7 +544,7 @@ void* worker_thread(void *Param)
 
          time = get_time_ms ();
          crop (bufferRGB, pw,ph, tga,ox,oy,dx,dy,bytesPerPixel);
-         int bscale = 8;
+         int bscale = 4;
          int dys = dy/bscale;
          int dxs = dx/bscale;
 
@@ -637,9 +560,7 @@ void* worker_thread(void *Param)
          //img_filter (FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
 
          if ( 1 == frameCount){
-             stbi_write_tga("in.tga", dx, dy, bytesPerPixel ,tga);
-             stbi_write_tga("bbox.tga", dxs, dys, bytesPerPixel ,bbox);
-             stbi_write_tga("out.tga", dx, dy, bytesPerPixel ,blured_box);
+
          }
 //         img_filter ( kernel ,MATRIX_SIZE,pw,ph, 0, 0, 4, bufferRGB, rbuffer);
 
@@ -647,34 +568,7 @@ void* worker_thread(void *Param)
          long cTime = get_time_ms() - time;
          vTime += cTime;
          vCount++;
-         printf ("spent  = %ld avg = %ld ms\n", cTime , vTime / vCount );
-
-        // vec4* stack = new vec4[ div ];
-        // gdImagePtr gdst = gdImageCreate(640, 480);
-
-        // change bits in pix map
-         int jj ;
-         int ll = 0;
-         int sox = ox ;
-         int eoy = oy ;
-         //imgh = dy;
-         //imgw = dx;
-//
-//         for (jj = 0 ; jj < pw * imgh ; jj++)
-//         {
-//             if (0 == (jj * bytesPerPixel ) % ( pw * bytesPerPixel) )
-//             {
-//                 int kk;
-//                 for (kk = sox; kk <  (sox + imgw) * bytesPerPixel ; kk++ )
-//                 {
-//                     if ( LEVEL_BLACK != pix_buffer [ ll * imgw *bytesPerPixel+ kk] && LEVEL_WHITE != pix_buffer [ ll * imgw *bytesPerPixel+ kk])
-//                        bufferRGB [ll * pw *bytesPerPixel + kk] = pix_buffer [ ll * imgw *bytesPerPixel+ kk];
-//                     //if ( LEVEL_BLACK != blured_box [ ll * imgw *bytesPerPixel+ kk] && LEVEL_WHITE != blured_box [ ll * imgw *bytesPerPixel+ kk])
-//                     //    bufferRGB [ll * pw *bytesPerPixel + kk] = blured_box [ ll * imgw *bytesPerPixel+ kk];
-//                 }
-//                 ll++;
-//             }
-//         }
+         //printf ("spent  = %ld avg = %ld ms\n", cTime , vTime / vCount );
 
          poutFrame->height = 480;
          poutFrame->width = 640;
@@ -684,13 +578,23 @@ void* worker_thread(void *Param)
              img_convert_ctxo = sws_getContext(pw, ph, pPixFormat, ow, oh,oPixFormat,SWS_BICUBIC, NULL, NULL, NULL);
          sws_scale(img_convert_ctxo, (const uint8_t * const*) pFrameRGB->data, pFrameRGB->linesize, 0, ph , poutFrame->data, poutFrame->linesize);
 
-         //pgm_save(bufferRGB, poutFrame->linesize[0],ow,oh, frameCount+1);
          //if ( 1 == frameCount )
          if ( kbhit ())
          {
              pgm_save(pinFrame->data[0], pinFrame->linesize[0],iw,ih, frameCount);
              pgm_save(poutFrame->data[0], poutFrame->linesize[0],ow,oh, frameCount+1);
-             SaveVFrame (pFrameRGB, pw, ph, frameCount);
+            // pgm_save(bufferRGB, poutFrame->linesize[0],ow,oh, frameCount+1);
+             if (AV_PIX_FMT_RGB24 == pPixFormat)
+                 SaveVFrameRGB (pFrameRGB, pw, ph, frameCount);
+             if (AV_PIX_FMT_RGBA == pPixFormat)
+             {
+                 char filename[32];
+                 sprintf(filename, "frame%d.tga", frameCount);
+                 stbi_write_tga(filename, pw, ph, bytesPerPixel ,pFrameRGB->data[0]);
+             }
+             stbi_write_tga("crop.tga", dx, dy, bytesPerPixel ,tga);
+             stbi_write_tga("cbox.tga", dxs, dys, bytesPerPixel ,bbox);
+             stbi_write_tga("cout.tga", dx, dy, bytesPerPixel ,blured_box);
          }
          frameCount++;
         }
