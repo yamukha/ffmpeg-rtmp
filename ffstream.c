@@ -5,20 +5,20 @@
 #include "libavutil/opt.h"
 #include "libavutil/fifo.h"
 
-//#include "/usr/include/ImageMagick/magick/magick-config.h"
-//#include "/usr/include/ImageMagick/magick/MagickCore.h"
-//#include "/usr/include/SDL/SDL_image.h"
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb/stb_image.h"
+#include <gd.h>
 
-#define STB_IMAGE_RESIZE_IMPLEMENTATION
-#define STB_IMAGE_RESIZE_STATIC
-#include "stb/stb_image_resize.h"
+#define MATRIX_SIZE 3
+#define KERNEL_HALF_SIZE ((MATRIX_SIZE * MATRIX_SIZE + 1)/2)
+#define FILL1S 1
+#define LEVEL_WHITE 0
+#define LEVEL_BLACK 255
 
 #include <pthread.h>
 #include <unistd.h>
 
 #include "utils.h"
+#include "filter.h"
+#include "stb_defs.h"
 
 #define MAX 1
 #define LIVE_STREAM 
@@ -40,22 +40,22 @@ unsigned char* pix_buffer;
 int imgh;
 int imgw;
 int bytesPerPixel;
-int img_scale = 5;
+int img_scale = 10;
 
 int video_idx[MAX], audio_idx[MAX];
 AVPacket pkt[MAX];
 
 static int static_pts = 0;
 
-static void print_usage() 
+#define filterWidth MATRIX_SIZE
+#define filterHeight MATRIX_SIZE
+float kernel [MATRIX_SIZE * MATRIX_SIZE];
+float filter [MATRIX_SIZE * MATRIX_SIZE] =
 {
-  fprintf (stdout,
-           "demuxes media input to rpmt streams\n"
-           "usage:  ./ffstream input destination format \n"
-           "i.e."
-           "./ffstream rtmp://ev1.favbet.com/live/stream26 rtmp://127.0.0.1/live/mystream flv \n"
-         );
-}
+    1, 1, 1,
+    1, -7, 1,
+    1, 1, 1
+};
 
 AVDictionary *fillupVDictionary (AVDictionary *dictionary)
 {
@@ -251,10 +251,6 @@ int InitVideoEncoder (int i, int k)
     return 0;
 }
 
-int encodeFrame(int new_pts, AVPacket *packet, AVFrame *frame )
-{
-}
-
 int rescaleTimeBase(AVPacket *out_pkt, AVPacket *base_pkt, AVRational in_tb, AVRational out_tb )
 {
     if (out_pkt->pts != AV_NOPTS_VALUE)
@@ -263,11 +259,6 @@ int rescaleTimeBase(AVPacket *out_pkt, AVPacket *base_pkt, AVRational in_tb, AVR
         out_pkt->dts = av_rescale_q(base_pkt->dts, in_tb, out_tb);
    //  fprintf (stdout, "pts %ld, dts %ld  \n",out_pkt.pts, out_pkt.dts);
     return 0;
-}
-
-int nextPTS()
-{
-    return static_pts ++;
 }
 
 void SaveAFrames (AVFrame *pFrame, int channels )
@@ -330,11 +321,22 @@ void* worker_thread(void *Param)
     int ret;
     int frameCount = 0;
     int pktCount = 0;
-
-   // AVCodecParserContext* parser;
+    long vCount = 0;
+    long vTime = 0;
 
     SwrContext *resample_context = swr_alloc();
 
+    int dx = imgw;//639;
+    int dy = imgh;//480;
+
+    int ox = 50;
+	int oy = 100;
+
+    uint8_t* rbuffer = (uint8_t *)av_malloc ( pVencCtx->height* pVencCtx->width*4 * sizeof (uint8_t));
+    uint8_t* tga = (uint8_t *)av_malloc ( dx* dy * 4 * sizeof (uint8_t));
+    uint8_t* blured_box = (uint8_t *)av_malloc ( dx* dy * 4 * sizeof (uint8_t));
+    uint8_t* bbox = (uint8_t *)av_malloc ( dx* dy * 4 * sizeof (uint8_t));
+    uint8_t* bbuffer = (uint8_t *)av_malloc ( dx* dy * 4 * sizeof (uint8_t));
 
     while (1)
     {
@@ -615,22 +617,64 @@ void* worker_thread(void *Param)
 
          sws_scale(img_convert_ctxi, (const uint8_t * const*) pinFrame->data, pinFrame->linesize, 0, ih , pFrameRGB->data, pFrameRGB->linesize);
 
+         long time ;
+
+         time = get_time_ms ();
+         crop (bufferRGB, pw,ph, tga,ox,oy,dx,dy,bytesPerPixel);
+         int bscale = 8;
+         int dys = dy/bscale;
+         int dxs = dx/bscale;
+
+         // blur over resize
+         stbir_resize_uint8(tga, dx, dy, 0, bbox, dxs, dys, 0, bytesPerPixel);
+         stbir_resize_uint8(bbox, dxs, dys, 0, blured_box, dx, dy, 0, bytesPerPixel);
+         img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+         //img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+         //img_filter ( TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+
+         // filter
+         //memcpy (blured_box, tga, dx* dy * 4 * sizeof (uint8_t));
+         //img_filter (FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+
+         if ( 1 == frameCount){
+             stbi_write_tga("in.tga", dx, dy, bytesPerPixel ,tga);
+             stbi_write_tga("bbox.tga", dxs, dys, bytesPerPixel ,bbox);
+             stbi_write_tga("out.tga", dx, dy, bytesPerPixel ,blured_box);
+         }
+//         img_filter ( kernel ,MATRIX_SIZE,pw,ph, 0, 0, 4, bufferRGB, rbuffer);
+
+         overlay (bufferRGB, pw,ph, blured_box,ox,oy,dx,dy,bytesPerPixel);
+         long cTime = get_time_ms() - time;
+         vTime += cTime;
+         vCount++;
+         printf ("spent  = %ld avg = %ld ms\n", cTime , vTime / vCount );
+
+        // vec4* stack = new vec4[ div ];
+        // gdImagePtr gdst = gdImageCreate(640, 480);
+
+        // change bits in pix map
          int jj ;
          int ll = 0;
-         // change bits in pix map
-         for (jj = 0 ; jj < pw * imgh ; jj++)
-         {
-             if (0 == (jj * bytesPerPixel ) % ( pw * bytesPerPixel) )
-             {
-                 int kk;
-                 for (kk = 0; kk < imgw*bytesPerPixel ; kk++ )
-                 {
-                     if ( 255 != pix_buffer [ ll * imgw *bytesPerPixel+ kk] && 0 != pix_buffer [ ll * imgw *bytesPerPixel+ kk])
-                         bufferRGB [ll * pw *bytesPerPixel + kk] = pix_buffer [ ll * imgw *bytesPerPixel+ kk];
-                 }
-                 ll++;
-             }
-         }
+         int sox = ox ;
+         int eoy = oy ;
+         //imgh = dy;
+         //imgw = dx;
+//
+//         for (jj = 0 ; jj < pw * imgh ; jj++)
+//         {
+//             if (0 == (jj * bytesPerPixel ) % ( pw * bytesPerPixel) )
+//             {
+//                 int kk;
+//                 for (kk = sox; kk <  (sox + imgw) * bytesPerPixel ; kk++ )
+//                 {
+//                     if ( LEVEL_BLACK != pix_buffer [ ll * imgw *bytesPerPixel+ kk] && LEVEL_WHITE != pix_buffer [ ll * imgw *bytesPerPixel+ kk])
+//                        bufferRGB [ll * pw *bytesPerPixel + kk] = pix_buffer [ ll * imgw *bytesPerPixel+ kk];
+//                     //if ( LEVEL_BLACK != blured_box [ ll * imgw *bytesPerPixel+ kk] && LEVEL_WHITE != blured_box [ ll * imgw *bytesPerPixel+ kk])
+//                     //    bufferRGB [ll * pw *bytesPerPixel + kk] = blured_box [ ll * imgw *bytesPerPixel+ kk];
+//                 }
+//                 ll++;
+//             }
+//         }
 
          poutFrame->height = 480;
          poutFrame->width = 640;
@@ -640,6 +684,7 @@ void* worker_thread(void *Param)
              img_convert_ctxo = sws_getContext(pw, ph, pPixFormat, ow, oh,oPixFormat,SWS_BICUBIC, NULL, NULL, NULL);
          sws_scale(img_convert_ctxo, (const uint8_t * const*) pFrameRGB->data, pFrameRGB->linesize, 0, ph , poutFrame->data, poutFrame->linesize);
 
+         //pgm_save(bufferRGB, poutFrame->linesize[0],ow,oh, frameCount+1);
          //if ( 1 == frameCount )
          if ( kbhit ())
          {
@@ -722,6 +767,11 @@ void* worker_thread(void *Param)
 
 int main(int argc, char **argv)
 {
+    unsigned char tga_header [TGA_HEADER_SIZE] = {0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,32,0 };
+    fill_TGA_header(tga_header, 2, 640, 480, 1);
+    float factor;
+    do_kernel(MATRIX_SIZE, kernel, FILL_BY_1S, &factor );
+    //memcpy (kernel, filter, MATRIX_SIZE * MATRIX_SIZE * (sizeof(float)));
 
     int ret, i = 0;
     static int video_stream_idx = -1, audio_stream_idx = -1;
@@ -733,7 +783,7 @@ int main(int argc, char **argv)
     memset(ifmt_ctx, 0, sizeof(ifmt_ctx));
     memset(video_idx, -1, sizeof(video_idx));
 
-    char* img_infile = "lena.jpeg"; // "logo.jpg" "lena.jpeg"
+    char* img_infile = "logo.jpg"; // "logo.jpg" "lena.jpeg"
 
     unsigned char* pixeldata = stbi_load(img_infile, &imgw, &imgh, &bytesPerPixel, 4);
     //int pix_buffer_size = imgw * imgh * bytesPerPixel;
@@ -756,6 +806,7 @@ int main(int argc, char **argv)
     stbir_resize_uint8(pixeldata, imgw, imgh, 0, pix_buffer, out_w, out_h, 0, bytesPerPixel);
     imgw = out_w ;
     imgh = out_h ;
+    printf("used image %s: w = %d , h = %d , b = %d\n", img_infile, imgw, imgh, bytesPerPixel);
     //pix_buffer_size = pix_buffer_osize;
     //memcpy (pix_buffer, pixeldata, pix_buffer_size);
 

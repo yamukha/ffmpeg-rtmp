@@ -1,5 +1,5 @@
 CC=gcc
-IPATH=/home/amukha/ffmpeg_sources/ffmpeg/
+IPATH=/home/amukha/ffmpeg_sources/
 LIBFF=-lavformat -lavcodec -lavutil -lavdevice -lswscale -lswresample
 LIBENC=-lfaac -lmp3lame -lfdk-aac -lvpx -lx264 -lyasm  -lrtmp -lvorbisenc -lva   
 LIBSYS=-lz -lm -lpthread
@@ -17,7 +17,7 @@ all: clean $(NAMEDSK)
 do: $(NAMEDSK) 
 
 $(NAMEDSK): 
-	$(CC) $(NAMEDSK).c utils.c -I$(IPATH) $(LIBFF) $(LIBENC) $(LIBSYS) -L$(LPATH)  $(LDFLAGS) -o $(NAMEDSK) 
+	$(CC) $(NAMEDSK).c utils.c filter.c -I$(IPATH) $(LIBFF) $(LIBENC) $(LIBSYS) -L$(LPATH)  $(LDFLAGS) -o $(NAMEDSK) 
 
 clean:
 	rm $(NAMEDSK)

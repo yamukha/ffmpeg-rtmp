@@ -47,3 +47,13 @@ int kbhit(void)
 
   return 0;
 }
+
+void print_usage()
+{
+  fprintf (stdout,
+           "demuxes media input to rpmt streams\n"
+           "usage:  ./ffstream input destination format \n"
+           "i.e."
+           "./ffstream rtmp://ev1.favbet.com/live/stream26 rtmp://127.0.0.1/live/mystream flv \n"
+         );
+}
