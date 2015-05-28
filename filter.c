@@ -152,8 +152,9 @@ int crop (unsigned char * image, int imagew, int imageh, unsigned char * crop_bu
            int delta;
            for ( delta = 0; delta < dw * bits; delta++ )
            {
-                crop_buffer [line * bits * dw + delta ] =  image [i];
-                i++;
+               //if ( 255 != crop_buffer [line * bits * dw + delta ] && 0 != crop_buffer [line * bits * dw + delta ])
+                   crop_buffer [line * bits * dw + delta ] =  image [i];
+               i++;
            }
            line++;
         }

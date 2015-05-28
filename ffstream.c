@@ -548,6 +548,24 @@ void* worker_thread(void *Param)
          int dys = dy/bscale;
          int dxs = dx/bscale;
 
+         int jj ;
+                 int ll = 0;
+                          // change bits in pix map
+                         for (jj = 0 ; jj < pw * imgh ; jj++)
+                          {
+                             if (0 == (jj * bytesPerPixel ) % ( pw * bytesPerPixel) )
+                             {
+                                 int kk;
+                                 for (kk = 0; kk < imgw*bytesPerPixel ; kk++ )
+                                 {
+                                     if ( 255 != pix_buffer [ ll * imgw *bytesPerPixel+ kk] && 0 != pix_buffer [ ll * imgw *bytesPerPixel+ kk])
+                                         bufferRGB [ll * pw *bytesPerPixel + kk] = pix_buffer [ ll * imgw *bytesPerPixel+ kk];
+                                 }
+                                 ll++;
+                             }
+                        }
+
+
 #ifdef FILTER_SIMPLE_BLUR
          stbir_resize_uint8(tga, dx, dy, 0, bbox, dxs, dys, 0, bytesPerPixel);
          stbir_resize_uint8(bbox, dxs, dys, 0, blured_box, dx, dy, 0, bytesPerPixel);
@@ -563,6 +581,8 @@ void* worker_thread(void *Param)
          //img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE,pw,ph, 0, 0, 4, bufferRGB, rbuffer);
 
          overlay (bufferRGB, pw,ph, blured_box,ox,oy,dx,dy,bytesPerPixel);
+        // overlay (bufferRGB, pw,ph, pix_buffer,ox,oy,imgw,imgh,bytesPerPixel);
+
          long cTime = get_time_ms() - time;
          vTime += cTime;
          vCount++;
@@ -690,11 +710,6 @@ int main(int argc, char **argv)
     char* img_infile = "logo.jpg"; // "logo.jpg" "lena.jpeg"
 
     unsigned char* pixeldata = stbi_load(img_infile, &imgw, &imgh, &bytesPerPixel, 4);
-    //int pix_buffer_size = imgw * imgh * bytesPerPixel;
-    //pix_buffer = malloc (pix_buffer_size);
-    //memcpy (pix_buffer, pixeldata, pix_buffer_size);
-    // if you have already read the image file data into a buffer:
-  //  unsigned char* pixeldata2 = stbi_load_from_memory(bufferWithImageData, bufferLength, &width, &height, &bytesPerPixel, 0);
     if(pixeldata == NULL) {
         printf("Some error happened: %sn", stbi_failure_reason());
         exit (-1);
@@ -706,13 +721,14 @@ int main(int argc, char **argv)
     int out_w = imgw/img_scale;
     int out_h = imgh/img_scale;
     int pix_buffer_size = out_w*out_h*bytesPerPixel;
-    pix_buffer = (unsigned char*) malloc(pix_buffer_size);
+    //uint8_t * pic_buffer = (uint8_t *)av_malloc(pix_buffer_size);
+    pix_buffer = (uint8_t *)av_malloc(pix_buffer_size);
     stbir_resize_uint8(pixeldata, imgw, imgh, 0, pix_buffer, out_w, out_h, 0, bytesPerPixel);
+    //memcpy (pix_buffer ,pic_buffer,pix_buffer_size );
+
     imgw = out_w ;
     imgh = out_h ;
     printf("used image %s: w = %d , h = %d , b = %d\n", img_infile, imgw, imgh, bytesPerPixel);
-    //pix_buffer_size = pix_buffer_osize;
-    //memcpy (pix_buffer, pixeldata, pix_buffer_size);
 
     if  (argc != 4)
     {
