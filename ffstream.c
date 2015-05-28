@@ -14,8 +14,6 @@
 
 #define MATRIX_SIZE 3
 #define KERNEL_HALF_SIZE ((MATRIX_SIZE * MATRIX_SIZE + 1)/2)
-#define LEVEL_WHITE 0
-#define LEVEL_BLACK 255
 
 char *in_filename, *destination, *out_format ;
 char out_filename[64];
@@ -549,22 +547,21 @@ void* worker_thread(void *Param)
          int dxs = dx/bscale;
 
          int jj ;
-                 int ll = 0;
-                          // change bits in pix map
-                         for (jj = 0 ; jj < pw * imgh ; jj++)
-                          {
-                             if (0 == (jj * bytesPerPixel ) % ( pw * bytesPerPixel) )
-                             {
-                                 int kk;
-                                 for (kk = 0; kk < imgw*bytesPerPixel ; kk++ )
-                                 {
-                                     if ( 255 != pix_buffer [ ll * imgw *bytesPerPixel+ kk] && 0 != pix_buffer [ ll * imgw *bytesPerPixel+ kk])
-                                         bufferRGB [ll * pw *bytesPerPixel + kk] = pix_buffer [ ll * imgw *bytesPerPixel+ kk];
-                                 }
-                                 ll++;
-                             }
-                        }
-
+         int ll = 0;
+         // change bits in pix map
+         for (jj = 0 ; jj < pw * imgh ; jj++)
+         {
+             if (0 == (jj * bytesPerPixel ) % ( pw * bytesPerPixel) )
+             {
+                 int kk;
+                 for (kk = 0; kk < imgw*bytesPerPixel ; kk++ )
+                 {
+                     if ( LEVEL_WHITE != pix_buffer [ ll * imgw *bytesPerPixel+ kk] && LEVEL_BLACK != pix_buffer [ ll * imgw *bytesPerPixel+ kk])
+                         bufferRGB [ll * pw *bytesPerPixel + kk] = pix_buffer [ ll * imgw *bytesPerPixel+ kk];
+                 }
+                 ll++;
+             }
+         }
 
 #ifdef FILTER_SIMPLE_BLUR
          stbir_resize_uint8(tga, dx, dy, 0, bbox, dxs, dys, 0, bytesPerPixel);

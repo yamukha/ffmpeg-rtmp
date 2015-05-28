@@ -11,6 +11,9 @@
 #define TRICK_OFF  0
 #define FILL_BY_1S 1
 #define TRICK_COPY 2
+#define LEVEL_WHITE 0
+#define LEVEL_BLACK 255
+
 //float * do_kernel (int rs, float * koeff ,  int ones);
 int  get_factor (float * koeff, int rs, float *sum);
 int normalize_filter (float * kernel1d, int rs , float *sum);
