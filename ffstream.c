@@ -265,6 +265,54 @@ void* worker_thread(void *Param)
     volatile uint8_t* bbox = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
     uint8_t* bbuffer = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
 
+    AVFrame *ain_frame ;
+    if (!(ain_frame = av_frame_alloc())) {
+        fprintf(stderr, "Could not allocate audio frame\n");
+    }
+
+    AVFrame *aout_frame ;
+    if (!(aout_frame = av_frame_alloc())) {
+         fprintf(stderr, "Could not allocate audio frame\n");
+    }
+
+    AVStream *in_astream = ifmt_ctx[id]->streams[idxa];
+    AVStream *in_vstream = ifmt_ctx[id]->streams[idx];
+
+    int ih = in_vstream->codec->height;
+    int iw = in_vstream->codec->width;
+    int ph = in_vstream->codec->height;
+    int pw = in_vstream->codec->width;
+    int oh = in_vstream->codec->height;
+    int ow = in_vstream->codec->width;
+
+    //AV_PIX_FMT_YUV420P AV_PIX_FMT_RGB24 AV_PIX_FMT_BGRA AV_PIX_FMT_YUVJ420P
+    enum AVPixelFormat iPixFormat = in_vstream->codec->pix_fmt;
+    enum AVPixelFormat oPixFormat = AV_PIX_FMT_YUV420P;
+    enum AVPixelFormat pPixFormat = AV_PIX_FMT_RGBA;
+
+    AVFrame * pinFrame;
+    if (!(pinFrame = av_frame_alloc())) {
+        fprintf(stderr, "Could not allocate audio frame\n");
+    }
+    int num_inBytes=avpicture_get_size(iPixFormat, iw, ih);
+    uint8_t* in_buffer=(uint8_t *)av_malloc(num_inBytes*sizeof(uint8_t));
+
+    AVFrame * pFrameRGB;
+    if (!(pFrameRGB = av_frame_alloc())) {
+        fprintf(stderr, "Could not allocate audio frame\n");
+    }
+    int num_BytesRGB=avpicture_get_size(pPixFormat, pw, ph);
+    volatile uint8_t* bufferRGB=(uint8_t *)av_malloc(num_BytesRGB*sizeof(uint8_t));
+
+    AVFrame * poutFrame;
+    if (!(poutFrame = av_frame_alloc())) {
+        fprintf(stderr, "Could not allocate audio frame\n");
+    }
+    int num_outBytes=avpicture_get_size(oPixFormat, ow, oh);
+    uint8_t* out_buffer=(uint8_t *)av_malloc(num_outBytes*sizeof(uint8_t));
+
+    av_init_packet (&pkt[id]);
+
     while (1)
     {
         pkt[id].data = NULL;
@@ -278,16 +326,15 @@ void* worker_thread(void *Param)
 
         if (pkt[id].stream_index == ( idxa ))
         {
-            AVStream *in_stream = ifmt_ctx[id]->streams[pkt[id].stream_index];
             AVStream *out_stream = ofmt_ctx[id]->streams[pkt[id].stream_index];
             AVRational time_base = ifmt_ctx[id]->streams[idxa]->time_base;
             AVStream *enc_stream = ovc->streams[pkt[id].stream_index];
 
-            av_opt_set_int(resample_context, "in_channel_layout",  in_stream->codec->channel_layout, 0);
+            av_opt_set_int(resample_context, "in_channel_layout",  in_astream->codec->channel_layout, 0);
             av_opt_set_int(resample_context, "out_channel_layout", enc_stream->codec->channel_layout,  0);
-            av_opt_set_int(resample_context, "in_sample_rate",     in_stream->codec->sample_rate,                0);
+            av_opt_set_int(resample_context, "in_sample_rate",     in_astream->codec->sample_rate,                0);
             av_opt_set_int(resample_context, "out_sample_rate",    enc_stream->codec->sample_rate,                0);
-            av_opt_set_sample_fmt(resample_context, "in_sample_fmt",  in_stream->codec->sample_fmt, 0);
+            av_opt_set_sample_fmt(resample_context, "in_sample_fmt",  in_astream->codec->sample_fmt, 0);
             av_opt_set_sample_fmt(resample_context, "out_sample_fmt", enc_stream->codec->sample_fmt,  0);
             swr_init(resample_context);
 
@@ -311,33 +358,18 @@ void* worker_thread(void *Param)
             apkt.data = NULL;
             apkt.size = 0;
 
-           // oapkt.flags |= AV_PKT_FLAG_KEY;
-            //oapkt.pts = oapkt.dts = pktCount;
             av_init_packet(&oapkt);
             av_init_packet(&apkt);
             oapkt.pos = -1;
-            //ovc->streams [pkt[id].stream_index]->codec->coded_frame->pts = pktCount; // seg fault
 
-            AVFrame *ain_frame = av_frame_alloc();
-            if (!(ain_frame = av_frame_alloc())) {
-                fprintf(stderr, "Could not allocate audio frame\n");
-                continue;
-            }
-
-            AVFrame *aout_frame = av_frame_alloc();
-            if (!(aout_frame = av_frame_alloc())) {
-                 fprintf(stderr, "Could not allocate audio frame\n");
-                 continue;
-            }
-
-            len = avcodec_decode_audio4(in_stream->codec, ain_frame,  &afinished, &pkt[id]);
+            len = avcodec_decode_audio4(in_astream->codec, ain_frame,  &afinished, &pkt[id]);
             if (len < 0) {
                 fprintf(stderr, "Could not decode frame (error '%s')\n",  av_err2str(ret));
                 av_free_packet(&pkt[id]);
                 continue;
             }
 
-            int data_size =  av_get_bytes_per_sample(in_stream->codec->sample_fmt);
+            int data_size =  av_get_bytes_per_sample(in_astream->codec->sample_fmt);
             int channel_size =  ain_frame->nb_samples * sizeof(uint8_t);
             int frame_size = channel_size * data_size;
             int osize = av_get_bytes_per_sample(enc_stream->codec->sample_fmt);
@@ -372,7 +404,7 @@ void* worker_thread(void *Param)
             //SaveAFrames (aframe, data_size);
 
             apts = ain_frame->pts;
-            int n_out =  (int ) (ain_frame->nb_samples * ( float )in_stream->codec->sample_rate / (float) in_stream->codec->sample_rate);
+            int n_out =  (int ) (ain_frame->nb_samples * ( float )in_astream->codec->sample_rate / (float) in_astream->codec->sample_rate);
             aout_frame->nb_samples = n_out;
 
             av_samples_alloc(converted_samples, NULL,enc_stream->codec->channels,
@@ -416,7 +448,7 @@ void* worker_thread(void *Param)
                 //exit(1);
                 }
             } // afinished
-
+            av_freep (&converted_samples[0]);
             if (got_apacket) {
                 int pkthi ;
                 int pktho ;
@@ -443,8 +475,10 @@ void* worker_thread(void *Param)
                 //rescaleTimeBase(&oapkt, &pkt[id], in_stream->time_base,enc_stream->time_base );
                 ret = av_interleaved_write_frame(ovc,&oapkt);
                 //ret = av_interleaved_write_frame(ovc, &pkt[id]);
-                av_frame_free (&ain_frame);
-                av_frame_free (&aout_frame);
+              //  av_frame_free (&ain_frame);
+              //  av_frame_free (&aout_frame);
+                av_frame_unref(ain_frame);
+                av_frame_unref(aout_frame);
                 av_free_packet(&oapkt);
                 av_free_packet(&apkt);
                 if (ret < 0) {
@@ -483,125 +517,101 @@ void* worker_thread(void *Param)
             continue;
         }
 
-        // video packets handler
+        // no video nor audio
         if (pkt[id].stream_index != idx) {
+            av_free_packet(&pkt[id]);
             continue;
         }
 
-        AVStream *in_stream = ifmt_ctx[id]->streams[pkt[id].stream_index];
-        AVStream *out_stream = ofmt_ctx[id]->streams[pkt[id].stream_index];
+        // video packets handler
+        if (pkt[id].stream_index == idx) {
+
+        AVStream *out_vstream = ofmt_ctx[id]->streams[pkt[id].stream_index];
         AVRational time_base = ifmt_ctx[id]->streams[idx]->time_base;
         AVStream *enc_stream = ovc->streams[pkt[id].stream_index];
 
-        int ih = in_stream->codec->height;
-        int iw = in_stream->codec->width;
-        int ph = in_stream->codec->height;
-        int pw = in_stream->codec->width;
-        int oh = in_stream->codec->height;
-        int ow = in_stream->codec->width;
         int got_packet = 0;
         int frameFinished;
 
-        AVFrame *pinFrame;
-        AVFrame *pFrameRGB;
-        AVFrame *poutFrame;
         struct SwsContext *img_convert_ctxi = NULL;
         struct SwsContext *img_convert_ctxo = NULL;
 
-        //AV_PIX_FMT_YUV420P AV_PIX_FMT_RGB24 AV_PIX_FMT_BGRA AV_PIX_FMT_YUVJ420P
+        avcodec_decode_video2(in_vstream->codec, pinFrame, &frameFinished, &pkt[id]);
+        if(frameFinished)
+        {
+             avpicture_fill((AVPicture *)pFrameRGB, (uint8_t *) bufferRGB,pPixFormat, pw, ph);
+             if(img_convert_ctxi == NULL)
+                 img_convert_ctxi = sws_getContext(iw, ih, iPixFormat, pw, ph,pPixFormat,SWS_BICUBIC, NULL, NULL, NULL);
 
-        enum AVPixelFormat oPixFormat = AV_PIX_FMT_YUV420P;
-        enum AVPixelFormat pPixFormat = AV_PIX_FMT_RGBA; //
-        enum AVPixelFormat iPixFormat = in_stream->codec->pix_fmt;
+             sws_scale(img_convert_ctxi, (const uint8_t * const*) pinFrame->data, pinFrame->linesize, 0, ih , pFrameRGB->data, pFrameRGB->linesize);
 
-        pinFrame=av_frame_alloc(); // Allocate video frame
-        pFrameRGB=av_frame_alloc();
-        poutFrame=av_frame_alloc();
+             long time ;
+             time = get_time_ms ();
 
-        int num_inBytes=avpicture_get_size(iPixFormat, iw, ih);
-        uint8_t* in_buffer=(uint8_t *)av_malloc(num_inBytes*sizeof(uint8_t));
-        avpicture_fill((AVPicture *)pinFrame, in_buffer,iPixFormat, iw, ih);
+             int bscale = 8;
+             int dys = dy/bscale;
+             int dxs = dx/bscale;
+             int jj ;
+             int ll = 0;
 
-        int num_BytesRGB=avpicture_get_size(pPixFormat, ow, oh);
-        volatile uint8_t* bufferRGB=(uint8_t *)av_malloc(num_BytesRGB*sizeof(uint8_t));
-        avpicture_fill((AVPicture *)pFrameRGB, (uint8_t *) bufferRGB,pPixFormat, pw, ph);
-
-        int num_outBytes=avpicture_get_size(oPixFormat, ow, oh);
-        uint8_t* out_buffer=(uint8_t *)av_malloc(num_outBytes*sizeof(uint8_t));
-        avpicture_fill((AVPicture *)poutFrame, out_buffer,oPixFormat, ow, oh);
-
-        avcodec_decode_video2(in_stream->codec, pinFrame, &frameFinished, &pkt[id]);
-        if(frameFinished) {
-
-         if(img_convert_ctxi == NULL)
-             img_convert_ctxi = sws_getContext(iw, ih, iPixFormat, pw, ph,pPixFormat,SWS_BICUBIC, NULL, NULL, NULL);
-
-         sws_scale(img_convert_ctxi, (const uint8_t * const*) pinFrame->data, pinFrame->linesize, 0, ih , pFrameRGB->data, pFrameRGB->linesize);
-
-         long time ;
-         time = get_time_ms ();
-
-         int bscale = 8;
-         int dys = dy/bscale;
-         int dxs = dx/bscale;
-         int jj ;
-         int ll = 0;
-
-         crop (pFrameRGB->data[0], pw,ph, tga,ox,oy,dx,dy,bytesPerPixel);
+             crop (pFrameRGB->data[0], pw,ph, tga,ox,oy,dx,dy,bytesPerPixel);
 
 #ifdef FILTER_SIMPLE_BLUR
-         stbir_resize_uint8((uint8_t* )tga, dx, dy, 0,  (uint8_t*) bbox, dxs, dys, 0, bytesPerPixel);
-         stbir_resize_uint8((uint8_t*) bbox, dxs, dys, 0, (uint8_t*)blured_box, dx, dy, 0, bytesPerPixel);
-        img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,(uint8_t* )tga);
-        //img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
-        // img_filter ( TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel, (uint8_t *) blured_box ,tga);
+             stbir_resize_uint8((uint8_t* )tga, dx, dy, 0,  (uint8_t*) bbox, dxs, dys, 0, bytesPerPixel);
+             stbir_resize_uint8((uint8_t*) bbox, dxs, dys, 0, (uint8_t*)blured_box, dx, dy, 0, bytesPerPixel);
+             img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,(uint8_t* )tga);
+             //img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+             // img_filter ( TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel, (uint8_t *) blured_box ,tga);
 #else
-         memcpy (blured_box, (uint8_t*)tga, dx* dy * 4 * sizeof (uint8_t));
-         img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
-         //img_filter (TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+             memcpy (blured_box, (uint8_t*)tga, dx* dy * 4 * sizeof (uint8_t));
+             img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+             //img_filter (TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
 #endif
 
-         overlay (pFrameRGB->data[0], pw,ph, blured_box,ox,oy,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
+             overlay (pFrameRGB->data[0], pw,ph, blured_box,ox,oy,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
 
-         //crop (pix_buffer, pw,ph, bbuffer,0,0,imgw-1,imgh,bytesPerPixel);
-         img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  pix_buffer ,bbuffer);
-         overlay (pFrameRGB->data[0], pw,ph, pix_buffer,ox,oy,imgw,imgh,bytesPerPixel,WITH_BW_LEVELS);
+             //crop (pix_buffer, pw,ph, bbuffer,0,0,imgw-1,imgh,bytesPerPixel);
+             img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  pix_buffer ,bbuffer);
+             overlay (pFrameRGB->data[0], pw,ph, pix_buffer,ox,oy,imgw,imgh,bytesPerPixel,WITH_BW_LEVELS);
 
-         //img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE,pw,ph, 0, 0, 4, bufferRGB, rbuffer);
+             //img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE,pw,ph, 0, 0, 4, bufferRGB, rbuffer);
 
-         long cTime = get_time_ms() - time;
-         vTime += cTime;
-         vCount++;
-         //printf ("spent  = %ld avg = %ld ms\n", cTime , vTime / vCount );
+             long cTime = get_time_ms() - time;
+             vTime += cTime;
+             vCount++;
+             //printf ("spent  = %ld avg = %ld ms\n", cTime , vTime / vCount );
 
-         poutFrame->height = 480;
-         poutFrame->width = 640;
-         poutFrame->format = (int) oPixFormat;
-
-         if(img_convert_ctxo == NULL)
-             img_convert_ctxo = sws_getContext(pw, ph, pPixFormat, ow, oh,oPixFormat,SWS_BICUBIC, NULL, NULL, NULL);
-         sws_scale(img_convert_ctxo, (const uint8_t * const*) pFrameRGB->data, pFrameRGB->linesize, 0, ph , poutFrame->data, poutFrame->linesize);
+             poutFrame->height = pw;
+             poutFrame->width = ph;
+             poutFrame->format = (int) oPixFormat;
+             avpicture_fill((AVPicture *)poutFrame, out_buffer,oPixFormat, ow, oh);
+             if(img_convert_ctxo == NULL)
+                 img_convert_ctxo = sws_getContext(pw, ph, pPixFormat, ow, oh,oPixFormat,SWS_BICUBIC, NULL, NULL, NULL);
+             sws_scale(img_convert_ctxo, (const uint8_t * const*) pFrameRGB->data, pFrameRGB->linesize, 0, ph , poutFrame->data, poutFrame->linesize);
 
          //if ( 1 == frameCount )
-         if ( kbhit ())
-         {
-             pgm_save(pinFrame->data[0], pinFrame->linesize[0],iw,ih, frameCount);
-             pgm_save(poutFrame->data[0], poutFrame->linesize[0],ow,oh, frameCount+1);
-            // pgm_save(bufferRGB, poutFrame->linesize[0],ow,oh, frameCount+1);
-             if (AV_PIX_FMT_RGB24 == pPixFormat)
-                 SaveVFrameRGB (pFrameRGB, pw, ph, frameCount);
-             if (AV_PIX_FMT_RGBA == pPixFormat)
+             if ( kbhit ())
              {
-                 char filename[32];
-                 sprintf(filename, "frame%d.tga", frameCount);
-                 stbi_write_tga(filename, pw, ph, bytesPerPixel ,pFrameRGB->data[0]);
+                 pgm_save(pinFrame->data[0], pinFrame->linesize[0],iw,ih, frameCount);
+                 pgm_save(poutFrame->data[0], poutFrame->linesize[0],ow,oh, frameCount+1);
+                 // pgm_save(bufferRGB, poutFrame->linesize[0],ow,oh, frameCount+1);
+                 if (AV_PIX_FMT_RGB24 == pPixFormat)
+                     SaveVFrameRGB (pFrameRGB, pw, ph, frameCount);
+                 if (AV_PIX_FMT_RGBA == pPixFormat)
+                 {
+                     char filename[32];
+                     sprintf(filename, "frame%d.tga", frameCount);
+                     stbi_write_tga(filename, pw, ph, bytesPerPixel ,pFrameRGB->data[0]);
+                 }
+                 stbi_write_tga("crop.tga", dx, dy, bytesPerPixel ,(uint8_t*) tga);
+                 stbi_write_tga("cbox.tga", dxs, dys, bytesPerPixel ,(uint8_t*) bbox);
+                 stbi_write_tga("cout.tga", dx, dy, bytesPerPixel ,(uint8_t*)blured_box);
              }
-             stbi_write_tga("crop.tga", dx, dy, bytesPerPixel ,(uint8_t*) tga);
-             stbi_write_tga("cbox.tga", dxs, dys, bytesPerPixel ,(uint8_t*) bbox);
-             stbi_write_tga("cout.tga", dx, dy, bytesPerPixel ,(uint8_t*)blured_box);
-         }
-         frameCount++;
-        }
+             frameCount++;
+
+             av_frame_unref(pinFrame);
+             av_frame_unref(pFrameRGB);
+        } // frame finished after video decode
 
 #ifdef LIVE_STREAM    
         int time = 1000;
@@ -612,7 +622,6 @@ void* worker_thread(void *Param)
 
         if(frameFinished)
         {
-
             AVPacket opkt ;
             opkt.data = NULL;
             opkt.size = 0;
@@ -622,21 +631,22 @@ void* worker_thread(void *Param)
             opkt.pos = -1;
             ovc->streams [pkt[id].stream_index]->codec->coded_frame->pts = pktCount;
 
-           poutFrame->pts =  pktCount;
-           av_frame_get_best_effort_timestamp(poutFrame);
-           ret = avcodec_encode_video2( ovc->streams [pkt[id].stream_index]->codec, &opkt, poutFrame, &got_packet);
+            poutFrame->pts =  pktCount;
+            av_frame_get_best_effort_timestamp(poutFrame);
+            ret = avcodec_encode_video2( ovc->streams [pkt[id].stream_index]->codec, &opkt, poutFrame, &got_packet);
+            av_frame_unref(poutFrame);
 
-           if (ret < 0)  {
-                fprintf(stderr, "Error encoding video frame: %s\n", av_err2str(ret));
-           }
+            if (ret < 0)  {
+                 fprintf(stderr, "Error encoding video frame: %s\n", av_err2str(ret));
+            }
 
-           if (got_packet)
-           {
-               if(ovc->streams [pkt[id].stream_index]->codec->coded_frame->key_frame)
-               {
-                   opkt.flags |= AV_PKT_FLAG_KEY;
-               }
-               rescaleTimeBase(&opkt, &pkt[id], in_stream->time_base,enc_stream->time_base );
+            if (got_packet)
+            {
+                if(ovc->streams [pkt[id].stream_index]->codec->coded_frame->key_frame)
+                {
+                    opkt.flags |= AV_PKT_FLAG_KEY;
+                }
+                rescaleTimeBase(&opkt, &pkt[id], in_vstream->time_base,enc_stream->time_base );
 
 #ifndef COPY_VPACKETS
                ret = av_interleaved_write_frame(ovc, &opkt);
@@ -644,6 +654,7 @@ void* worker_thread(void *Param)
                {
                    fprintf(stderr, "Error writing video frame: %s\n", av_err2str(ret));
                }
+
                av_free_packet(&opkt);
 #endif
            }
@@ -656,13 +667,8 @@ void* worker_thread(void *Param)
        } // frameFinished
 
         av_free_packet(&pkt[id]);
-        av_frame_free(&pinFrame);
-        av_frame_free(&pFrameRGB);
-        av_frame_free(&poutFrame);
-        av_free ((uint8_t *)bufferRGB);
-        av_free (in_buffer);
-        av_free (out_buffer);
-       pktCount++;
+        av_freep(pkt);
+        pktCount++;
 
         if (ret < 0)
         {
@@ -670,6 +676,7 @@ void* worker_thread(void *Param)
             fprintf(stderr, "write frame result: %s\n", av_err2str(ret));
             break;
         }
+        }// video packet
     }
 }
 
