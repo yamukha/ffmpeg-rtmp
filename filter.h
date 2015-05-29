@@ -13,13 +13,17 @@
 #define TRICK_COPY 2
 #define LEVEL_WHITE 0
 #define LEVEL_BLACK 255
+#define WITH_BW_LEVELS 1
+#define WITHOUT_BW_LEVELS 0
+#define LOGO_POSX 5
+#define LOGO_POSY 10
 
 //float * do_kernel (int rs, float * koeff ,  int ones);
 int  get_factor (float * koeff, int rs, float *sum);
 int normalize_filter (float * kernel1d, int rs , float *sum);
-int img_filter(int trick ,float * ikernel, int filterSize, int w, int h, int winw, int winh, int bits, uint8_t * pixbuff,  uint8_t * result );
-int crop (unsigned char * image, int imagew, int imageh, unsigned char * crop_buffer, int cropw, int croph, int dw, int dh, int bits );
-int overlay (unsigned char * image, int imagew, int imageh, unsigned char * crop_buffer, int cropw, int croph, int dw, int dh, int bits );
+int img_filter(int trick ,float * ikernel, int filterSize, int w, int h, int winw, int winh, int bits, volatile uint8_t * pixbuff,  volatile uint8_t * result );
+int crop (volatile uint8_t * image, int imagew, int imageh, volatile uint8_t * crop_buffer, int cropw, int croph, int dw, int dh, int bits );
+int overlay (volatile uint8_t * image, int imagew, int imageh, volatile uint8_t * crop_buffer, int cropw, int croph, int dw, int dh, int bits , int alpha );
 int fill_TGA_header (unsigned char * header, unsigned char type ,  int w, int  h ,int a) ;
 float * do_kernel (int rs, float * koeff ,  int ones, float * factor);
 

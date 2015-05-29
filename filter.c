@@ -40,7 +40,7 @@ int normalize_filter (float * kernel1d, int rs , float * sum)
     return 0;
 }
 
-int img_filter(int trick ,float * ikernel, int filterSize, int w, int h, int winw, int winh, int bits, uint8_t * pixbuff,  uint8_t * result )
+int img_filter(int trick ,float * ikernel, int filterSize, int w, int h, int winw, int winh, int bits, volatile uint8_t * pixbuff, volatile  uint8_t * result )
 {
     int filterSizeH = filterSize;
     int filterSizeW = filterSize;
@@ -116,12 +116,18 @@ int img_filter(int trick ,float * ikernel, int filterSize, int w, int h, int win
             result [y*w*bits + x*bits +3 ] = min(max ((int) (nfactor * alpha + bias),0), 255);
         }
     }
-    memcpy (pixbuff, result, w * bits * h);
+
+    for( x = 0; x < w; x++)
+    {
+        for(y = 0; y < h; y++)
+            pixbuff [y*w*bits + x*bits  ] = result [y*w*bits + x*bits  ];
+    }
+    // memcpy (pixbuff, result, w * bits * h);
     return 0;
 }
 
 
-int crop (unsigned char * image, int imagew, int imageh, unsigned char * crop_buffer, int cropw, int croph, int dw, int dh, int bits )
+int crop ( volatile uint8_t * image, int imagew, int imageh, volatile uint8_t * crop_buffer, int cropw, int croph, int dw, int dh, int bits )
 {
     int i, j;
     int start_pos, end_pos, delta_pos;
@@ -163,7 +169,7 @@ int crop (unsigned char * image, int imagew, int imageh, unsigned char * crop_bu
     return 0;
 }
 
-int overlay (unsigned char * image, int imagew, int imageh, unsigned char * crop_buffer, int cropw, int croph, int dw, int dh, int bits )
+int overlay (volatile uint8_t* image, int imagew, int imageh, volatile uint8_t * crop_buffer, int cropw, int croph, int dw, int dh, int bits, int bw )
 {
     int i, j;
     int start_pos, end_pos, delta_pos;
@@ -194,7 +200,13 @@ int overlay (unsigned char * image, int imagew, int imageh, unsigned char * crop
            int delta;
            for ( delta = 0; delta < dw * bits; delta++ )
            {
-                image [i] = crop_buffer [line * bits * dw + delta ];
+                if (bw)
+                {
+                    if ( LEVEL_WHITE != crop_buffer [line * bits * dw + delta ] && LEVEL_BLACK != crop_buffer [line * bits * dw + delta ])
+                    image [i] = crop_buffer [line * bits * dw + delta ];
+                }
+                else
+                    image [i] = crop_buffer [line * bits * dw + delta ];
                 i++;
            }
            line++;

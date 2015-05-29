@@ -26,7 +26,7 @@ AVCodecContext  *pVencCtx, *pAencCtx;
 AVCodec         *pVCodec,  *pACodec;
 AVCodec         *pAenc, *pVenc;
 AVStream *audio_st, *video_st;
-unsigned char* pix_buffer;
+volatile uint8_t * pix_buffer;
 int imgh;
 int imgw;
 int bytesPerPixel;
@@ -257,13 +257,13 @@ void* worker_thread(void *Param)
     int dy = imgh;//480;
 
     int ox = 50;
-	int oy = 100;
+	int oy = 10;
 
-    uint8_t* rbuffer = (uint8_t *)av_malloc ( pVencCtx->height* pVencCtx->width*4 * sizeof (uint8_t));
-    uint8_t* tga = (uint8_t *)av_malloc ( dx* dy * 4 * sizeof (uint8_t));
-    uint8_t* blured_box = (uint8_t *)av_malloc ( dx* dy * 4 * sizeof (uint8_t));
-    uint8_t* bbox = (uint8_t *)av_malloc ( dx* dy * 4 * sizeof (uint8_t));
-    uint8_t* bbuffer = (uint8_t *)av_malloc ( dx* dy * 4 * sizeof (uint8_t));
+    uint8_t* rbuffer = (uint8_t *)av_malloc ( pVencCtx->height* pVencCtx->width*bytesPerPixel * sizeof (uint8_t));
+    volatile uint8_t* tga = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
+    volatile uint8_t* blured_box = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
+    volatile uint8_t* bbox = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
+    uint8_t* bbuffer = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
 
     while (1)
     {
@@ -523,8 +523,8 @@ void* worker_thread(void *Param)
         avpicture_fill((AVPicture *)pinFrame, in_buffer,iPixFormat, iw, ih);
 
         int num_BytesRGB=avpicture_get_size(pPixFormat, ow, oh);
-        uint8_t* bufferRGB=(uint8_t *)av_malloc(num_BytesRGB*sizeof(uint8_t));
-        avpicture_fill((AVPicture *)pFrameRGB, bufferRGB,pPixFormat, pw, ph);
+        volatile uint8_t* bufferRGB=(uint8_t *)av_malloc(num_BytesRGB*sizeof(uint8_t));
+        avpicture_fill((AVPicture *)pFrameRGB, (uint8_t *) bufferRGB,pPixFormat, pw, ph);
 
         int num_outBytes=avpicture_get_size(oPixFormat, ow, oh);
         uint8_t* out_buffer=(uint8_t *)av_malloc(num_outBytes*sizeof(uint8_t));
@@ -539,46 +539,35 @@ void* worker_thread(void *Param)
          sws_scale(img_convert_ctxi, (const uint8_t * const*) pinFrame->data, pinFrame->linesize, 0, ih , pFrameRGB->data, pFrameRGB->linesize);
 
          long time ;
-
          time = get_time_ms ();
-         crop (bufferRGB, pw,ph, tga,ox,oy,dx,dy,bytesPerPixel);
+
          int bscale = 8;
          int dys = dy/bscale;
          int dxs = dx/bscale;
-
          int jj ;
          int ll = 0;
-         // change bits in pix map
-         for (jj = 0 ; jj < pw * imgh ; jj++)
-         {
-             if (0 == (jj * bytesPerPixel ) % ( pw * bytesPerPixel) )
-             {
-                 int kk;
-                 for (kk = 0; kk < imgw*bytesPerPixel ; kk++ )
-                 {
-                     if ( LEVEL_WHITE != pix_buffer [ ll * imgw *bytesPerPixel+ kk] && LEVEL_BLACK != pix_buffer [ ll * imgw *bytesPerPixel+ kk])
-                         bufferRGB [ll * pw *bytesPerPixel + kk] = pix_buffer [ ll * imgw *bytesPerPixel+ kk];
-                 }
-                 ll++;
-             }
-         }
+
+         crop (pFrameRGB->data[0], pw,ph, tga,ox,oy,dx,dy,bytesPerPixel);
 
 #ifdef FILTER_SIMPLE_BLUR
-         stbir_resize_uint8(tga, dx, dy, 0, bbox, dxs, dys, 0, bytesPerPixel);
-         stbir_resize_uint8(bbox, dxs, dys, 0, blured_box, dx, dy, 0, bytesPerPixel);
-         img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
-         //img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
-         //img_filter ( TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+         stbir_resize_uint8((uint8_t* )tga, dx, dy, 0,  (uint8_t*) bbox, dxs, dys, 0, bytesPerPixel);
+         stbir_resize_uint8((uint8_t*) bbox, dxs, dys, 0, (uint8_t*)blured_box, dx, dy, 0, bytesPerPixel);
+        img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,(uint8_t* )tga);
+        //img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
+        // img_filter ( TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel, (uint8_t *) blured_box ,tga);
 #else
-         memcpy (blured_box, tga, dx* dy * 4 * sizeof (uint8_t));
+         memcpy (blured_box, (uint8_t*)tga, dx* dy * 4 * sizeof (uint8_t));
          img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
          //img_filter (TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
 #endif
 
-         //img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE,pw,ph, 0, 0, 4, bufferRGB, rbuffer);
+         overlay (pFrameRGB->data[0], pw,ph, blured_box,ox,oy,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
 
-         overlay (bufferRGB, pw,ph, blured_box,ox,oy,dx,dy,bytesPerPixel);
-        // overlay (bufferRGB, pw,ph, pix_buffer,ox,oy,imgw,imgh,bytesPerPixel);
+         //crop (pix_buffer, pw,ph, bbuffer,0,0,imgw-1,imgh,bytesPerPixel);
+         img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  pix_buffer ,bbuffer);
+         overlay (pFrameRGB->data[0], pw,ph, pix_buffer,ox,oy,imgw,imgh,bytesPerPixel,WITH_BW_LEVELS);
+
+         //img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE,pw,ph, 0, 0, 4, bufferRGB, rbuffer);
 
          long cTime = get_time_ms() - time;
          vTime += cTime;
@@ -607,9 +596,9 @@ void* worker_thread(void *Param)
                  sprintf(filename, "frame%d.tga", frameCount);
                  stbi_write_tga(filename, pw, ph, bytesPerPixel ,pFrameRGB->data[0]);
              }
-             stbi_write_tga("crop.tga", dx, dy, bytesPerPixel ,tga);
-             stbi_write_tga("cbox.tga", dxs, dys, bytesPerPixel ,bbox);
-             stbi_write_tga("cout.tga", dx, dy, bytesPerPixel ,blured_box);
+             stbi_write_tga("crop.tga", dx, dy, bytesPerPixel ,(uint8_t*) tga);
+             stbi_write_tga("cbox.tga", dxs, dys, bytesPerPixel ,(uint8_t*) bbox);
+             stbi_write_tga("cout.tga", dx, dy, bytesPerPixel ,(uint8_t*)blured_box);
          }
          frameCount++;
         }
@@ -670,7 +659,7 @@ void* worker_thread(void *Param)
         av_frame_free(&pinFrame);
         av_frame_free(&pFrameRGB);
         av_frame_free(&poutFrame);
-        av_free (bufferRGB);
+        av_free ((uint8_t *)bufferRGB);
         av_free (in_buffer);
         av_free (out_buffer);
        pktCount++;
@@ -718,15 +707,12 @@ int main(int argc, char **argv)
     int out_w = imgw/img_scale;
     int out_h = imgh/img_scale;
     int pix_buffer_size = out_w*out_h*bytesPerPixel;
-    //uint8_t * pic_buffer = (uint8_t *)av_malloc(pix_buffer_size);
     pix_buffer = (uint8_t *)av_malloc(pix_buffer_size);
-    stbir_resize_uint8(pixeldata, imgw, imgh, 0, pix_buffer, out_w, out_h, 0, bytesPerPixel);
-    //memcpy (pix_buffer ,pic_buffer,pix_buffer_size );
+    stbir_resize_uint8(pixeldata, imgw, imgh, 0, (uint8_t *)pix_buffer, out_w, out_h, 0, bytesPerPixel);
 
     imgw = out_w ;
     imgh = out_h ;
     printf("used image %s: w = %d , h = %d , b = %d\n", img_infile, imgw, imgh, bytesPerPixel);
-
     if  (argc != 4)
     {
         print_usage();
