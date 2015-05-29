@@ -589,6 +589,9 @@ void* worker_thread(void *Param)
                  img_convert_ctxo = sws_getContext(pw, ph, pPixFormat, ow, oh,oPixFormat,SWS_BICUBIC, NULL, NULL, NULL);
              sws_scale(img_convert_ctxo, (const uint8_t * const*) pFrameRGB->data, pFrameRGB->linesize, 0, ph , poutFrame->data, poutFrame->linesize);
 
+             sws_freeContext(img_convert_ctxi);
+             sws_freeContext(img_convert_ctxo);
+
          //if ( 1 == frameCount )
              if ( kbhit ())
              {
