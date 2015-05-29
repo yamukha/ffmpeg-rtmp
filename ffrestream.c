@@ -163,7 +163,7 @@ void * get_head (fifo_t *p )
     return fn->fn_data;
 }
 
-static void print_usage()
+static void printf_usage()
 {
     fprintf (stdout,
              "demuxes media input to rpmt streams\n"
@@ -195,9 +195,13 @@ void* worker_thread(void *Param)
     int apackets_cnt = 0;
     int vpackets_cnt = 0;
     int a2v_measure_done = 0;
+    av_init_packet (&pkt[id]);
 
     while (1)
     {
+        pkt[id].data = NULL;
+        pkt[id].size = 0;
+
         ret = av_read_frame(ifmt_ctx[id], &pkt[id]);
         if (ret < 0)
             break;
@@ -216,7 +220,7 @@ void* worker_thread(void *Param)
            int time = 1000 * 1000 * strtof(av_ts2timestr(pkt[id].duration, &time_base), NULL);
 #endif
             usleep(time);
-
+/*
             pkt[id].pts = av_rescale_q_rnd(pkt[id].pts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
             pkt[id].dts = av_rescale_q_rnd(pkt[id].dts, in_stream->time_base, out_stream->time_base, AV_ROUND_NEAR_INF|AV_ROUND_PASS_MINMAX);
             pkt[id].duration = av_rescale_q(pkt[id].duration, in_stream->time_base, out_stream->time_base);
@@ -256,6 +260,7 @@ void* worker_thread(void *Param)
             fifo_add (apackets_queue,  (void*)&pkt[id]);
             pkt[id] = *(AVPacket *)get_head (apackets_queue);
             fifo_remove (apackets_queue);
+*/
             ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
 
             if (ret < 0)
@@ -265,6 +270,7 @@ void* worker_thread(void *Param)
             }
 
             av_free_packet(&pkt[id]);
+            av_freep(pkt);
             continue;
 		}
 
@@ -272,6 +278,7 @@ void* worker_thread(void *Param)
         if (pkt[id].stream_index != idx)
         {
             av_free_packet(&pkt[id]);
+            av_freep(pkt);
             continue;
         }
 
@@ -286,7 +293,7 @@ void* worker_thread(void *Param)
         int time = 1000 * 1000 * strtof(av_ts2timestr(pkt[id].duration, &time_base), NULL);
 #endif
         usleep(time);
-
+/*
         if ( 0 == vpackets_nb)
             vstart_time = get_time_ms ();
 
@@ -320,7 +327,7 @@ void* worker_thread(void *Param)
         fifo_add (vpackets_queue,  (void*)&pkt[id]);
         pkt[id] = *(AVPacket *)get_head (vpackets_queue);
         fifo_remove (vpackets_queue);
-
+*/
         ret = av_interleaved_write_frame(ofmt_ctx[id], &pkt[id]);
 
         ret = 0;
@@ -331,6 +338,7 @@ void* worker_thread(void *Param)
        }
 
        av_free_packet(&pkt[id]);
+       av_freep(pkt);
 
     }  // while
 }
@@ -354,7 +362,7 @@ int main(int argc, char **argv)
 
     if  (argc < 5)
     {
-        print_usage();
+        printf_usage();
         exit (0);
     }
 
