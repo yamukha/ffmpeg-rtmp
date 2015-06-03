@@ -37,6 +37,13 @@ AVPacket pkt[MAX];
 
 static int static_pts = 0;
 
+int  smooth ( uint8_t*  iimg, uint8_t*  buf, int inw, int inh, int scale , int bytesPerPixel)
+{
+    stbir_resize_uint8(iimg, inw, inh, 0, (uint8_t*) buf, inw/scale, inh/scale, 0, bytesPerPixel);
+    stbir_resize_uint8(buf,  inw/scale,  inh/scale, 0, iimg,  inw, inh, 0, bytesPerPixel);
+    return 0;
+}
+
 #define filterWidth MATRIX_SIZE
 #define filterHeight MATRIX_SIZE
 float kernel [MATRIX_SIZE * MATRIX_SIZE];
@@ -118,7 +125,12 @@ int InitVideoDecoder (int i, int k )
 int InitAudioEncoder (int i, int k)
 {
     //int aencID = AV_CODEC_ID_AAC;
-    int aencID = ifmt_ctx[i]->streams[k]->codec->codec_id;
+#ifdef __cplusplus
+    AVCodecID aencID;
+#else
+    int aencID;
+#endif
+    aencID = ifmt_ctx[i]->streams[k]->codec->codec_id;
     pAenc=avcodec_find_encoder(aencID);
     if(NULL == pAenc)
     {
@@ -260,9 +272,13 @@ void* worker_thread(void *Param)
 	int oy = 10;
 
     uint8_t* rbuffer = (uint8_t *)av_malloc ( pVencCtx->height* pVencCtx->width*bytesPerPixel * sizeof (uint8_t));
-    volatile uint8_t* tga = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
+    volatile uint8_t* tga0 = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
+    volatile uint8_t* tga1 = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
+    volatile uint8_t* tga2 = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
     volatile uint8_t* blured_box = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
+    volatile uint8_t* blured_box2 = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
     volatile uint8_t* bbox = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
+    volatile uint8_t* bbox2 = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
     uint8_t* bbuffer = (uint8_t *)av_malloc ( dx* dy * bytesPerPixel * sizeof (uint8_t));
 
     AVFrame *ain_frame ;
@@ -310,6 +326,9 @@ void* worker_thread(void *Param)
     }
     int num_outBytes=avpicture_get_size(oPixFormat, ow, oh);
     uint8_t* out_buffer=(uint8_t *)av_malloc(num_outBytes*sizeof(uint8_t));
+
+    struct SwsContext *img_convert_ctxi = NULL;
+    struct SwsContext *img_convert_ctxo = NULL;
 
     av_init_packet (&pkt[id]);
 
@@ -364,7 +383,9 @@ void* worker_thread(void *Param)
 
             len = avcodec_decode_audio4(in_astream->codec, ain_frame,  &afinished, &pkt[id]);
             if (len < 0) {
+#ifndef  __cplusplus
                 fprintf(stderr, "Could not decode frame (error '%s')\n",  av_err2str(ret));
+#endif
                 av_free_packet(&pkt[id]);
                 continue;
             }
@@ -417,7 +438,9 @@ void* worker_thread(void *Param)
                               (const uint8_t **)ain_frame->extended_data, ain_frame->nb_samples);
 
             if (ret < 0) {
+#ifndef  __cplusplus
                 fprintf(stderr, "Error swr_convert audio frame: %s\n", av_err2str(ret));
+#endif
                 exit(1);
             }
 
@@ -444,7 +467,9 @@ void* worker_thread(void *Param)
 
             ret = avcodec_encode_audio2(enc_stream->codec, &oapkt, aout_frame, &got_apacket); // need aout_frame
             if (ret < 0) {
+#ifndef  __cplusplus
                   fprintf(stderr, "Error encoding audio frame: %s\n", av_err2str(ret));
+#endif
                 //exit(1);
                 }
             } // afinished
@@ -482,7 +507,9 @@ void* worker_thread(void *Param)
                 av_free_packet(&oapkt);
                 av_free_packet(&apkt);
                 if (ret < 0) {
+#ifndef  __cplusplus
                    fprintf(stderr, "Error while writing audio frame: %s\n", av_err2str(ret));
+#endif
                 }
             } // got_apacket
             else
@@ -533,9 +560,6 @@ void* worker_thread(void *Param)
         int got_packet = 0;
         int frameFinished;
 
-        struct SwsContext *img_convert_ctxi = NULL;
-        struct SwsContext *img_convert_ctxo = NULL;
-
         avcodec_decode_video2(in_vstream->codec, pinFrame, &frameFinished, &pkt[id]);
         if(frameFinished)
         {
@@ -554,27 +578,35 @@ void* worker_thread(void *Param)
              int jj ;
              int ll = 0;
 
-             crop (pFrameRGB->data[0], pw,ph, tga,ox,oy,dx,dy,bytesPerPixel);
+             int oy1 = oy + 100;
+             int oy2 = oy + 200;
+
+             crop (pFrameRGB->data[0], pw,ph, tga0,ox,oy,dx,dy,bytesPerPixel);
+             crop (pFrameRGB->data[0], pw,ph, tga1,ox,oy1,dx,dy,bytesPerPixel);
+             crop (pFrameRGB->data[0], pw,ph, tga2,ox,oy2,dx,dy,bytesPerPixel);
 
 #ifdef FILTER_SIMPLE_BLUR
-             stbir_resize_uint8((uint8_t* )tga, dx, dy, 0,  (uint8_t*) bbox, dxs, dys, 0, bytesPerPixel);
-             stbir_resize_uint8((uint8_t*) bbox, dxs, dys, 0, (uint8_t*)blured_box, dx, dy, 0, bytesPerPixel);
-             img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,(uint8_t* )tga);
-             //img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
-             // img_filter ( TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel, (uint8_t *) blured_box ,tga);
+             smooth ( (uint8_t*)tga0,(uint8_t*) blured_box ,imgw, imgh, bscale , bytesPerPixel);
+             img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  tga0 ,(uint8_t* )blured_box);
 #else
              memcpy (blured_box, (uint8_t*)tga, dx* dy * 4 * sizeof (uint8_t));
              img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
-             //img_filter (TRICK_OFF, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  blured_box ,tga);
 #endif
+             overlay (pFrameRGB->data[0], pw,ph, tga0,ox,oy,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
 
-             overlay (pFrameRGB->data[0], pw,ph, blured_box,ox,oy,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
+//             smooth ( (uint8_t*) tga1, (uint8_t*) bbox,imgw, imgh, bscale , bytesPerPixel);
+//             img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  tga1 ,(uint8_t* )bbox2);
+//             overlay (pFrameRGB->data[0], pw,ph, tga1,ox,oy1,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
+//
+//             smooth ( (uint8_t*) tga2, (uint8_t*) bbox2,imgw, imgh, bscale , bytesPerPixel);
+//             img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  tga2 ,(uint8_t* )bbox);
+//             overlay (pFrameRGB->data[0], pw,ph, tga2,ox,oy2,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
 
-             //crop (pix_buffer, pw,ph, bbuffer,0,0,imgw-1,imgh,bytesPerPixel);
+             //add logo
              img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  pix_buffer ,bbuffer);
              overlay (pFrameRGB->data[0], pw,ph, pix_buffer,ox,oy,imgw,imgh,bytesPerPixel,WITH_BW_LEVELS);
 
-             //img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE,pw,ph, 0, 0, 4, bufferRGB, rbuffer);
+            //img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE,pw,ph, 0, 0, 4, bufferRGB, rbuffer);
 
              long cTime = get_time_ms() - time;
              vTime += cTime;
@@ -589,8 +621,8 @@ void* worker_thread(void *Param)
                  img_convert_ctxo = sws_getContext(pw, ph, pPixFormat, ow, oh,oPixFormat,SWS_BICUBIC, NULL, NULL, NULL);
              sws_scale(img_convert_ctxo, (const uint8_t * const*) pFrameRGB->data, pFrameRGB->linesize, 0, ph , poutFrame->data, poutFrame->linesize);
 
-             sws_freeContext(img_convert_ctxi);
-             sws_freeContext(img_convert_ctxo);
+            // sws_freeContext(img_convert_ctxi);
+            // sws_freeContext(img_convert_ctxo);
 
          //if ( 1 == frameCount )
              if ( kbhit ())
@@ -606,7 +638,7 @@ void* worker_thread(void *Param)
                      sprintf(filename, "frame%d.tga", frameCount);
                      stbi_write_tga(filename, pw, ph, bytesPerPixel ,pFrameRGB->data[0]);
                  }
-                 stbi_write_tga("crop.tga", dx, dy, bytesPerPixel ,(uint8_t*) tga);
+                 stbi_write_tga("crop.tga", dx, dy, bytesPerPixel ,(uint8_t*) tga1);
                  stbi_write_tga("cbox.tga", dxs, dys, bytesPerPixel ,(uint8_t*) bbox);
                  stbi_write_tga("cout.tga", dx, dy, bytesPerPixel ,(uint8_t*)blured_box);
              }
@@ -640,7 +672,9 @@ void* worker_thread(void *Param)
             av_frame_unref(poutFrame);
 
             if (ret < 0)  {
+#ifndef  __cplusplus
                  fprintf(stderr, "Error encoding video frame: %s\n", av_err2str(ret));
+#endif
             }
 
             if (got_packet)
@@ -655,7 +689,9 @@ void* worker_thread(void *Param)
                ret = av_interleaved_write_frame(ovc, &opkt);
                if (ret < 0)
                {
+#ifndef  __cplusplus
                    fprintf(stderr, "Error writing video frame: %s\n", av_err2str(ret));
+#endif
                }
 
                av_free_packet(&opkt);
@@ -676,7 +712,9 @@ void* worker_thread(void *Param)
         if (ret < 0)
         {
             fprintf(stderr, "Error muxing packet thread %d\n", id);
+#ifndef  __cplusplus
             fprintf(stderr, "write frame result: %s\n", av_err2str(ret));
+#endif
             break;
         }
         }// video packet
@@ -703,7 +741,7 @@ int main(int argc, char **argv)
     memset(ifmt_ctx, 0, sizeof(ifmt_ctx));
     memset(video_idx, -1, sizeof(video_idx));
 
-    char* img_infile = "logo.jpg"; // "logo.jpg" "lena.jpeg"
+    const char* img_infile = "logo.jpg"; // "logo.jpg" "lena.jpeg"
 
     unsigned char* pixeldata = stbi_load(img_infile, &imgw, &imgh, &bytesPerPixel, 4);
     if(pixeldata == NULL) {
@@ -936,7 +974,9 @@ end:
 
         if (ret < 0 && ret != AVERROR_EOF)
         {
+#ifndef  __cplusplus
             fprintf(stderr, "Error occurred: %s\n", av_err2str(ret));
+#endif
             return 1;
         }
     }

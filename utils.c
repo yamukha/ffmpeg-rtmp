@@ -8,10 +8,7 @@
 #include <stdio.h>
 #include <time.h>
 
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libswscale/swscale.h>
-#include <libavutil/avutil.h>
+#include "utils.h"
 
 long get_time_ms (void)
 {

@@ -26,5 +26,6 @@ int crop (volatile uint8_t * image, int imagew, int imageh, volatile uint8_t * c
 int overlay (volatile uint8_t * image, int imagew, int imageh, volatile uint8_t * crop_buffer, int cropw, int croph, int dw, int dh, int bits , int alpha );
 int fill_TGA_header (unsigned char * header, unsigned char type ,  int w, int  h ,int a) ;
 float * do_kernel (int rs, float * koeff ,  int ones, float * factor);
+//int smooth (uint8_t*  iimg, int inw, int inh, int scale , int bytesPerPixel);
 
 #endif /* FILTER_H_ */

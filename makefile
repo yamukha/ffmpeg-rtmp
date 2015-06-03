@@ -1,4 +1,5 @@
-CC=gcc
+CC=g++ -D__STDC_CONSTANT_MACROS 
+#CC=gcc 
 IPATH=/home/amukha/ffmpeg_sources/
 LIBFF=-lavformat -lavcodec -lavutil -lavdevice -lswscale -lswresample
 LIBENC=-lfaac -lmp3lame -lfdk-aac -lvpx -lx264 -lyasm  -lrtmp -lvorbisenc -lva   

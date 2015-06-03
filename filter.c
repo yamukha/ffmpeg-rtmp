@@ -8,6 +8,8 @@
 #include "utils.h"
 #include "filter.h"
 
+//#include "stb_defs.h"
+
 int get_factor (float * kernel1d, int rs, float *sum)
 {
      if ( 1 > rs)
@@ -159,13 +161,13 @@ int crop ( volatile uint8_t * image, int imagew, int imageh, volatile uint8_t * 
            for ( delta = 0; delta < dw * bits; delta++ )
            {
                //if ( 255 != crop_buffer [line * bits * dw + delta ] && 0 != crop_buffer [line * bits * dw + delta ])
-                   crop_buffer [line * bits * dw + delta ] =  image [i];
-               i++;
+                   crop_buffer [j] =  image [i] ;
+               i++; j++;
            }
            line++;
         }
     }
-    //printf (" start_pos = %d, end_pos %d , copied %d bytes \n", start_pos, end_pos, j);
+   // printf (" start_pos = %d, end_pos %d , copied %d bytes \n", start_pos, end_pos, j);
     return 0;
 }
 
@@ -244,7 +246,7 @@ float * do_kernel (int rs, float * koeff ,  int ones, float * factor)
     printf ( "kernel size %d, %d\n", kernelSize, rs);
     int kernelSizeHalf = kernelSize / 2;
 
-    float * kernel1d = malloc ( rs * rs * sizeof(float ));
+    float * kernel1d = (float * )malloc ( rs * rs * sizeof(float ));
 
     kernel1d[kernelSizeHalf]=1;
     kernel1d[0]=0;
@@ -274,3 +276,4 @@ float * do_kernel (int rs, float * koeff ,  int ones, float * factor)
     free (kernel1d);
     return koeff;
 }
+
