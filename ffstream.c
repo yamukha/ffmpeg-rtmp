@@ -580,7 +580,15 @@ void* worker_thread(void *Param)
 
              int oy1 = oy + 100;
              int oy2 = oy + 200;
+             struct gfilter fg1;
+             fg1.bpp = bytesPerPixel;
+             fg1.ox = ox;
+             fg1.oy = oy;
+             fg1.w = dx;
+             fg1.h = dy;
+             fg1.scale;
 
+             crop (pFrameRGB->data[0], pw,ph, tga0,fg1.ox,fg1.oy,fg1.w,fg1.h,fg1.bpp);
              crop (pFrameRGB->data[0], pw,ph, tga0,ox,oy,dx,dy,bytesPerPixel);
              crop (pFrameRGB->data[0], pw,ph, tga1,ox,oy1,dx,dy,bytesPerPixel);
              crop (pFrameRGB->data[0], pw,ph, tga2,ox,oy2,dx,dy,bytesPerPixel);
@@ -594,13 +602,13 @@ void* worker_thread(void *Param)
 #endif
              overlay (pFrameRGB->data[0], pw,ph, tga0,ox,oy,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
 
-//             smooth ( (uint8_t*) tga1, (uint8_t*) bbox,imgw, imgh, bscale , bytesPerPixel);
-//             img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  tga1 ,(uint8_t* )bbox2);
-//             overlay (pFrameRGB->data[0], pw,ph, tga1,ox,oy1,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
-//
-//             smooth ( (uint8_t*) tga2, (uint8_t*) bbox2,imgw, imgh, bscale , bytesPerPixel);
-//             img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  tga2 ,(uint8_t* )bbox);
-//             overlay (pFrameRGB->data[0], pw,ph, tga2,ox,oy2,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
+             smooth ( (uint8_t*) tga1, (uint8_t*) bbox,imgw, imgh, bscale , bytesPerPixel);
+             img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  tga1 ,(uint8_t* )bbox2);
+             overlay (pFrameRGB->data[0], pw,ph, tga1,ox,oy1,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
+
+             smooth ( (uint8_t*) tga2, (uint8_t*) bbox2,imgw, imgh, bscale , bytesPerPixel);
+             img_filter ( FILL_BY_1S, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  tga2 ,(uint8_t* )bbox);
+             overlay (pFrameRGB->data[0], pw,ph, tga2,ox,oy2,dx,dy,bytesPerPixel, WITHOUT_BW_LEVELS);
 
              //add logo
              img_filter ( TRICK_COPY, kernel ,MATRIX_SIZE, dx,dy, 0, 0, bytesPerPixel,  pix_buffer ,bbuffer);

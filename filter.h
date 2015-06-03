@@ -18,6 +18,15 @@
 #define LOGO_POSX 5
 #define LOGO_POSY 10
 
+struct gfilter
+{
+   int  ox;
+   int  oy;
+   int  w;
+   int  h;
+   int  scale;
+   int  bpp;
+} ;
 //float * do_kernel (int rs, float * koeff ,  int ones);
 int  get_factor (float * koeff, int rs, float *sum);
 int normalize_filter (float * kernel1d, int rs , float *sum);
