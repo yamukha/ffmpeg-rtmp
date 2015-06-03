@@ -7,6 +7,7 @@
 
 #include "utils.h"
 #include "filter.h"
+#include "stb/stb_image_resize.h"
 
 //#include "stb_defs.h"
 
@@ -275,5 +276,12 @@ float * do_kernel (int rs, float * koeff ,  int ones, float * factor)
     }
     free (kernel1d);
     return koeff;
+}
+
+int  smooth ( uint8_t*  iimg, uint8_t*  buf, int inw, int inh, int scale , int bytesPerPixel)
+{
+    stbir_resize_uint8(iimg, inw, inh, 0, (uint8_t*) buf, inw/scale, inh/scale, 0, bytesPerPixel);
+    stbir_resize_uint8(buf,  inw/scale,  inh/scale, 0, iimg,  inw, inh, 0, bytesPerPixel);
+    return 0;
 }
 

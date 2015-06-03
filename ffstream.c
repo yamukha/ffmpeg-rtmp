@@ -37,13 +37,6 @@ AVPacket pkt[MAX];
 
 static int static_pts = 0;
 
-int  smooth ( uint8_t*  iimg, uint8_t*  buf, int inw, int inh, int scale , int bytesPerPixel)
-{
-    stbir_resize_uint8(iimg, inw, inh, 0, (uint8_t*) buf, inw/scale, inh/scale, 0, bytesPerPixel);
-    stbir_resize_uint8(buf,  inw/scale,  inh/scale, 0, iimg,  inw, inh, 0, bytesPerPixel);
-    return 0;
-}
-
 #define filterWidth MATRIX_SIZE
 #define filterHeight MATRIX_SIZE
 float kernel [MATRIX_SIZE * MATRIX_SIZE];
