@@ -6,6 +6,10 @@
 #include "stb_defs.h"
 
 #include "avheader.h"
+//#include "jsmn/jsmn.h"
+
+#include <json-c/json.h>
+//#include <json-c/parse_flags.h>
 
 #define MAX 1
 #define LIVE_STREAM 
@@ -36,6 +40,45 @@ int video_idx[MAX], audio_idx[MAX];
 AVPacket pkt[MAX];
 
 static int static_pts = 0;
+
+int parse_json (void)
+{
+    json_object *new_obj;
+    json_object *jbody;
+    const char *jsb = "blur";
+    const char *js = "{ \"blur\":[{\"id\":1, \"ox\":10, \"oy\":10 ,  \"w\": 160, \"h\":90}, \
+                                {\"id\":2, \"ox\":10, \"oy\":100 , \"w\": 160, \"h\":90}, \
+                                {\"id\":3, \"ox\":10, \"oy\":200 , \"w\": 160, \"h\":90}  ]}";
+    //const char *js  = "{\"server\": \"example.com\", \"post\": 80,  \"message\": \"hello world\"}";
+    new_obj = json_tokener_parse(js);
+    printf("new_obj.to_string()=%s\n", json_object_to_json_string(new_obj));
+    new_obj = json_tokener_parse(js);
+       enum json_type type = json_object_get_type(new_obj);
+       printf("type: %d \n",type);
+       switch (type) {
+       case json_type_null: printf("json_type_null\n");
+       break;
+       case json_type_boolean: printf("json_type_boolean\n");
+       break;
+       case json_type_double: printf("json_type_double\n");
+       break;
+       case json_type_int: printf("json_type_int\n");
+       break;
+       case json_type_object: printf("json_type_object\n");
+             if ( json_object_object_get_ex(new_obj, "blur", &jbody))
+                 printf("jbody = %s\n", json_object_to_json_string(jbody));
+             else
+                 printf("jbody = %s\n", "!empty");
+       break;
+       case json_type_array: printf("json_type_array\n");
+       break;
+       case json_type_string: printf("json_type_string\n");
+       break;
+       }
+
+    json_object_put(new_obj);
+    return 0;
+};
 
 #define filterWidth MATRIX_SIZE
 #define filterHeight MATRIX_SIZE
@@ -724,6 +767,7 @@ void* worker_thread(void *Param)
 
 int main(int argc, char **argv)
 {
+    parse_json();
     unsigned char tga_header [TGA_HEADER_SIZE] = {0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,32,0 };
     fill_TGA_header(tga_header, 2, 640, 480, 1);
     float factor;
