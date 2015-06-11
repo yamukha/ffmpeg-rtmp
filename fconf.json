@@ -1,0 +1,9 @@
+{
+    "blur":[  {"x": 50, "y": 60, "width": 160 , "height": 90} ],
+    "logo": {"pos": {"x":50,"y":60, "width":10 , "height":160}, "file":"logos.png"},
+    "source": "rtmp://s3b78u0kbtx79q.cloudfront.net/cfx/st/honda_accord",
+    "dest": "rtmp://internet.com:1940/live/test1",
+    "delay": "7000",
+    "start": 1433835705,
+    "stop": 1433846710
+}
