@@ -61,22 +61,22 @@ def place (x,y):
 
 for key in j:
 		value = j[key]
-		ffsrc = j['source']
-		ffdst = j['dest']
-		ffstart = j['start']
-		ffstop = j['stop']				
-		ffdelay = j['delay']	
+		ffsrc = j['source'] ['url']
+		ffdst = j['destination'] ['url']
+		ffstart = j['time']['start']
+		ffstop = j['time']['end']				
+		ffdelay = j['delayer']['delay']	
 		
-		if key  == 'blur':
-			blur_count = len(j['blur'])
+		if key  == 'blurs':
+			blur_count = len(j['blurs'])
 			print ("numb. of blurs = " +  str(blur_count) )			
 			print ("blur coordinates are:" + str (value))						
 			for bcount in range ( 0, blur_count):
-				print ("blur # " +  str(bcount) + " is "  + str (j['blur'] [bcount]) )	
-				x = j['blur'] [bcount] ['x'] 
-				y = j['blur'] [bcount] ['y'] 
-				w = j['blur'] [bcount] ['width'] 
-				h = j ['blur'] [bcount] ['height'] 	
+				print ("blur # " +  str(bcount) + " is "  + str (j['blurs'] [bcount]) )	
+				x = j['blurs'] [bcount] ['x'] 
+				y = j['blurs'] [bcount] ['y'] 
+				w = j['blurs'] [bcount] ['width'] 
+				h = j ['blurs'] [bcount] ['height'] 	
 				filter_list.append([ "blur"+str(bcount),x,y,w,h])			
 				print ("x=" + str(x) + " y=" + str (y) + " w=" + str(w) + " h=" + str (h)) 				
 			pass
@@ -86,10 +86,10 @@ for key in j:
 			logo_count = 1
 			fflogo = j['logo'] ['file'] 
 			print ("logo " +  fflogo )				
-			x = j['logo'] ['pos'] ['x'] 
-			y = j['logo'] ['pos'] ['y'] 
-			w = j['logo'] ['pos'] ['width'] 
-			h = j['logo'] ['pos'] ['height'] 				
+			x = j['logo']  ['x'] 
+			y = j['logo']  ['y'] 
+			w = j['logo']  ['width'] 
+			h = j['logo']  ['height'] 				
 			logo_list.append([ "logo",x,y,w,h])
 			print ("x=" + str(x) + " y=" + str (y) + " w=" + str(w) + " h=" + str (h)) 										
 pass
