@@ -1,10 +1,10 @@
 {
     "source": {
-    "url": "rtmp://184.72.239.149/vod/BigBuckBunny_115k.mov",
+    "url": "rtmp://ev1.favbet.com/live/stream25",
     "id": "sw4hmqVPe0E"
   },
   "destination": {
-    "url": "rtmp://gstream1.favbet.com:1940/live/test1",
+    "url": "rtmp://gstream1.com:1940/live/test1",
     "format": "flv"
   },
   "video": {
