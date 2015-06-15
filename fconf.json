@@ -3,10 +3,10 @@
     "url": "rtmp://gstream1.com/live/stream5",
     "data": "sw4hmqVPe0E",
     "type": "youtube",
-    "proxy": "rtmp://gstream1.com:1940/live/test0"
+    "proxy": "rtmp://gstream1.com:1940/live/test0p"
   },
   "destination": {
-    "url": "rtmp://gstream1.com:1940/live/test2",
+    "url": "rtmp://gstream1.com:1940/live/test0",
     "format": "flv"
   },
   "video": {
@@ -32,7 +32,7 @@
     
      
   "delayer": {
-    "url": "rtmp://gstream1.com:1940/live/test1",
+    "url": "rtmp://gstream1.com:1940/live/test0d",
     "delay": 5000
   },
   "extras": {}

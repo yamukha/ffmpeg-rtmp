@@ -30,19 +30,19 @@ part1 ='#!/bin/bash\n sleep 1\n '
 part2 ='\necho "PID" \n PID=$! \n echo "$$" \n on_die() \n { \n echo "Dying transcoder..." \n kill -15 $PID \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n echo "PID Monitor $PID exit $TIME" >>  "./log.txt" \n exit 0 \n }\n' 
 part3 ='trap \'on_die\' TERM \n SEC=0 \n while true ; do \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n RUNNED=$(echo $(ps -p $PID | grep $PID ))\n'
 part4 = 'if [ -n "$RUNNED" ]; then \n echo "Alive transcoder..."  \n else \n echo "Killed $TIME "  >>  "./log.txt" \n'
-part5 = 'sleep 1\n PID=$! \n fi\n sleep 1 \n	SEC=$((SEC+1)) \n done \n exit 0 \n'
+part5 = '\nsleep 1\n PID=$! \n fi\n sleep 1 \n	SEC=$((SEC+1)) \n done \n exit 0 \n'
 
 part1d ='#!/bin/bash\n sleep 1\n ' 
 part2d ='\necho "PID" \n PID=$! \n echo "$$" \n on_die() \n { \n echo "Dying delayer..." \n kill -15 $PID \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n echo "PID Monitor $PID $TIME" >>  "./log.txt" \n exit 0 \n }\n' 
 part3d ='trap \'on_die\' TERM \n SEC=0 \n while true ; do \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n RUNNED=$(echo $(ps -p $PID | grep $PID ))\n'
 part4d = 'if [ -n "$RUNNED" ]; then \n echo "Alive delayer..."  \n else \n echo "Killed $TIME "  >>  "./log.txt" \n'
-part5d = 'sleep 1\n PID=$! \n fi\n sleep 1 \n	SEC=$((SEC+1)) \n done \n exit 0 \n'
+part5d = '\nsleep 1\n PID=$! \n fi\n sleep 1 \n	SEC=$((SEC+1)) \n done \n exit 0 \n'
 
 part1g ='#!/bin/bash\n sleep 1\n ' 
 part2g ='\necho "PID" \n PID=$! \n echo "$$" \n on_die() \n { \n echo "Dying grubber..." \n kill -15 $PID \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n echo "PID Monitor $PID $TIME" >>  "./log.txt" \n exit 0 \n }\n' 
 part3g ='trap \'on_die\' TERM \n SEC=0 \n while true ; do \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n RUNNED=$(echo $(ps -p $PID | grep $PID ))\n'
 part4g = 'if [ -n "$RUNNED" ]; then \n echo "Alive grabber..."  \n else \n echo "Killed $TIME "  >>  "./log.txt" \n'
-part5g = 'sleep 1\n PID=$! \n fi\n sleep 1 \n	SEC=$((SEC+1)) \n done \n exit 0 \n'
+part5g = '\nsleep 1\n PID=$! \n fi\n sleep 1 \n	SEC=$((SEC+1)) \n done \n exit 0 \n'
 
 part1k ='#!/bin/bash\n' 
 part2k = '\nTIME=$(date +"%d-%m-%Y %H:%M:%S")\necho "Run killer $TIME" >>  "./log.txt" \necho "Run killer $TIME" \nexit 0 \n'
@@ -79,6 +79,8 @@ filter_count = 0
 
 filter_list = []
 logo_list = []
+
+cmdkill = ''
 
 def crop (x,y,w,h):
 	return str(x)+':' + str(y) +':'+ str(w) +':'+ str(h)
@@ -136,6 +138,23 @@ for key in j:
 			logo_list.append([ "logo",x,y,w,h])
 			print ("x=" + str(x) + " y=" + str (y) + " w=" + str(w) + " h=" + str (h)) 										
 pass
+
+cmdgrab = ''
+
+if (fftype == 'twitch' or fftype == 'youtube'):	
+	ffsrc = ffproxy
+	if (fftype == 'twitch'):
+		cmdgrab =  'livestreamer -a="" -p="ffmpeg -i -  -codec:a libfdk_aac -ar 44100  -c:v libx264 -f flv ' + ffdst + ' " -v ' + ffsrc + ' best &'
+	if (fftype == 'youtube'):
+		print >> f1, 'run youtubedl' 
+		ffpath = '~/ffmpeg_opt/ffmpeg-2.6.3/ffmpeg' 
+		youtubedl = 'YOUTUBE_DL_COMMAND="youtube-dl https://www.youtube.com/watch?v='+ffsrcid + ' ' + '--format=mp4 -g" \n'
+		echodl = 'echo $($YOUTUBE_DL_COMMAND) >> log.txt\n'
+		cmdgrab =   youtubedl + echodl+  ffpath + ' -i $($YOUTUBE_DL_COMMAND) -acodec libmp3lame  -c:v libx264 -ar 44100  -vf scale=640:480 -f flv ' + ffproxy  +' & \n'			
+	makesh (grabFile, part1, part2, part3, part4, cmdgrab, part5)	
+	time.sleep(1) 	
+	cmdkill += 'killall ' + flgrab + ' \n' 
+	os.system( grabFile + ' &')
 
 print filter_list
 print logo_list
@@ -284,11 +303,9 @@ time.sleep(1)
 os.system( confFile + " &")
 time.sleep(1) 
 
-dlypath="~/ffmpeg_opt/ffdelayer"
+dlypath="~/ffmpeg_opt/ffmpeg-2.6.3/ffdelayer"
 ffdelay_src = ffdst
 cmddly= dlypath + ' -f ' + ffdelay_src + ' -t ' + ffdelay_dst + ' -d ' + str (ffdelay) + ' &'
-
-cmdkill = ''
 
 if (ffdelay_dst != ''):	
 	makesh (delayFile, part1, part2, part3, part4, cmddly, part5)
@@ -296,22 +313,6 @@ if (ffdelay_dst != ''):
 	cmdkill += 'killall ' + fldelay + ' \n' 
 	time.sleep(1) 	
 	os.system( delayFile + ' &')
-
-cmdgrab = ''
-
-if (fftype == 'twitch' or fftype == 'youtube'):	
-	if (fftype == 'twitch'):
-		cmdgrab =  'livestreamer -a="" -p="ffmpeg -i -  -codec:a libfdk_aac -ar 44100  -c:v libx264 -f flv ' + ffdst + ' " -v ' + ffsrc + ' best &'
-	if (fftype == 'youtube'):
-		print >> f1, 'run youtubedl' 
-		ffpath = '~/ffmpeg_opt/ffmpeg-2.6.3/ffmpeg' 
-		youtubedl = 'YOUTUBE_DL_COMMAND="youtube-dl https://www.youtube.com/watch?v='+ffsrcid + ' ' + '--format=mp4 -g" \n'
-		echodl = 'echo $($YOUTUBE_DL_COMMAND) >> log.txt\n'
-		cmdgrab =   youtubedl + echodl+ 'eval ' +  ffpath + ' -i $($YOUTUBE_DL_COMMAND) -acodec libmp3lame  -c:v libx264 -ar 44100  -vf scale=640:480 -f flv ' + ffproxy  +' & \n'			
-	makesh (grabFile, part1, part2, part3, part4, cmdgrab, part5)	
-	time.sleep(1) 	
-	cmdkill += 'killall ' + flgrab + ' \n' 
-	os.system( grabFile + ' &')
 		
 cmdkill += 'killall ' + flconf	+ '\n'
 killsh (killFile, part1k, cmdkill ,part2k)	
