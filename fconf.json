@@ -1,10 +1,12 @@
 {
     "source": {
-    "url": "rtmp://gstream1.com:1940/live/test0",
-    "id": "sw4hmqVPe0E"
+    "url": "rtmp://ev1.favbet.com/live/stream5",
+    "data": "sw4hmqVPe0E",
+    "type": "youtube",
+    "proxy": "rtmp://stream.com:1940/live/test0"
   },
   "destination": {
-    "url": "rtmp://gstream1.com:1940/live/test1",
+    "url": "rtmp://stream.com:1940/live/test2",
     "format": "flv"
   },
   "video": {
@@ -30,7 +32,7 @@
     
      
   "delayer": {
-    "url": "rtmp://gstream1.favbet.com:1935/user/test1",
+    "url": "rtmp://stream.com:1940/live/test1",
     "delay": 5000
   },
   "extras": {}
