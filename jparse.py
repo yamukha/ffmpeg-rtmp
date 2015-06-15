@@ -9,23 +9,49 @@ import sys
 import signal
 import pexpect
 
-confFile = './conf001.sh'
+stnumber=1
+flconf = 'conf'+ str(stnumber) +'.sh'
+fldelay = 'dly'+ str(stnumber)+ '.sh'
+flgrab =  'grab'+ str(stnumber)+ '.sh'
+flkill =  'kill'+ str(stnumber)+ '.sh'
+
+confFile  = './' + flconf
+delayFile = './'+ fldelay
+grabFile  = './' + flgrab
+killFile  = './' + flkill
 
 f1 = open('./log.txt', 'w+')
-f2 = open(confFile, 'w+')
-
 json_file='fconf.json'
+
+ffdelay_dst = ''
 
 #part1 ='#!/bin/bash \n sleep 1\n  \n file=$1\n name=$(cat "$file") \n echo $name \n ' 
 part1 ='#!/bin/bash\n sleep 1\n ' 
-part2 ='echo "PID" \n PID=$! \n echo "$$" \n on_die() \n { \n echo "Dying..." \n kill -15 $PID \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n echo "Monitor exit $TIME" >>  "./log.txt" \n exit 0 \n }\n' 
+part2 ='\necho "PID" \n PID=$! \n echo "$$" \n on_die() \n { \n echo "Dying transcoder..." \n kill -15 $PID \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n echo "PID Monitor $PID exit $TIME" >>  "./log.txt" \n exit 0 \n }\n' 
 part3 ='trap \'on_die\' TERM \n SEC=0 \n while true ; do \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n RUNNED=$(echo $(ps -p $PID | grep $PID ))\n'
-part4 = 'if [ -n "$RUNNED" ]; then \n echo "Alive..."  \n else \n echo "Killed $TIME "  >>  "./log.txt" \n'
+part4 = 'if [ -n "$RUNNED" ]; then \n echo "Alive transcoder..."  \n else \n echo "Killed $TIME "  >>  "./log.txt" \n'
 part5 = 'sleep 1\n PID=$! \n fi\n sleep 1 \n	SEC=$((SEC+1)) \n done \n exit 0 \n'
 
+part1d ='#!/bin/bash\n sleep 1\n ' 
+part2d ='\necho "PID" \n PID=$! \n echo "$$" \n on_die() \n { \n echo "Dying delayer..." \n kill -15 $PID \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n echo "PID Monitor $PID $TIME" >>  "./log.txt" \n exit 0 \n }\n' 
+part3d ='trap \'on_die\' TERM \n SEC=0 \n while true ; do \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n RUNNED=$(echo $(ps -p $PID | grep $PID ))\n'
+part4d = 'if [ -n "$RUNNED" ]; then \n echo "Alive delayer..."  \n else \n echo "Killed $TIME "  >>  "./log.txt" \n'
+part5d = 'sleep 1\n PID=$! \n fi\n sleep 1 \n	SEC=$((SEC+1)) \n done \n exit 0 \n'
+
+part1g ='#!/bin/bash\n sleep 1\n ' 
+part2g ='\necho "PID" \n PID=$! \n echo "$$" \n on_die() \n { \n echo "Dying grubber..." \n kill -15 $PID \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n echo "PID Monitor $PID $TIME" >>  "./log.txt" \n exit 0 \n }\n' 
+part3g ='trap \'on_die\' TERM \n SEC=0 \n while true ; do \n TIME=$(date +"%d-%m-%Y %H:%M:%S") \n RUNNED=$(echo $(ps -p $PID | grep $PID ))\n'
+part4g = 'if [ -n "$RUNNED" ]; then \n echo "Alive grabber..."  \n else \n echo "Killed $TIME "  >>  "./log.txt" \n'
+part5g = 'sleep 1\n PID=$! \n fi\n sleep 1 \n	SEC=$((SEC+1)) \n done \n exit 0 \n'
+
+part1k ='#!/bin/bash\n' 
+part2k = '\nTIME=$(date +"%d-%m-%Y %H:%M:%S")\necho "Run killer $TIME" >>  "./log.txt" \necho "Run killer $TIME" \nexit 0 \n'
 json_data=open(json_file)
 j = json.load (json_data);
 
+ffproxy =''
+fftype = ''
+ffsrcid = ''
 ffapk = 'ffmpeg'
 ffprocess = 'ffplay';
 ffsrc = ''
@@ -58,15 +84,32 @@ def crop (x,y,w,h):
 	return str(x)+':' + str(y) +':'+ str(w) +':'+ str(h)
 def place (x,y):
 	return str(x)+':' + str(y)
+	
+def makesh (fname, p1,p2,p3,p4, command ,p5):
+	f = open(fname , 'w+')
+	bash = p1 + command + p2 + p3 + p4 + command  + p5	
+	print >> f, bash
+	os.system( 'chmod +x ' +  fname)
+	f.close()	
+
+def killsh (fname, p1, command ,p5):
+	f = open(fname , 'w+')
+	bash = p1 + command  + p5	
+	print >> f, bash
+	os.system( 'chmod +x ' +  fname)
+	f.close()	
 
 for key in j:
 		value = j[key]
 		ffsrc = j['source'] ['url']
+		fftype = j['source'] ['type']
+		ffsrcid = j['source'] ['data']
+		ffproxy = j['source'] ['proxy']
 		ffdst = j['destination'] ['url']
 		ffstart = j['time']['start']
 		ffstop = j['time']['end']				
 		ffdelay = j['delayer']['delay']	
-		
+		ffdelay_dst = j['delayer'] ['url']
 		if key  == 'blurs':
 			blur_count = len(j['blurs'])
 			print ("numb. of blurs = " +  str(blur_count) )			
@@ -235,18 +278,43 @@ currtime = time.localtime (time.time())
 logtime = time.strftime("%d-%m-%Y %H:%M:%S", currtime ) 
 
 print >> f1, logtime 
-print >> f2, part1 
-print >> f2, cmd 
-print >> f2, part2 
-print >> f2, part3
-print >> f2, part4
-print >> f2, cmd 
-print >> f2, part5
-os.system( 'chmod +x ' +  confFile)
-f1.close() 
-f2.close() 
+makesh (confFile, part1, part2, part3, part4, cmd, part5)
 time.sleep(1) 
-#runsh =  './run001.sh'  +  ' ' +  '"$(cat '+ confFile +')"'
-#runsh =  './run001.sh'  +  ' ' + '\"' + cmd +'\"'
-os.system( confFile)
+
+os.system( confFile + " &")
+time.sleep(1) 
+
+dlypath="~/ffmpeg_opt/ffdelayer"
+ffdelay_src = ffdst
+cmddly= dlypath + ' -f ' + ffdelay_src + ' -t ' + ffdelay_dst + ' -d ' + str (ffdelay) + ' &'
+
+cmdkill = ''
+
+if (ffdelay_dst != ''):	
+	makesh (delayFile, part1, part2, part3, part4, cmddly, part5)
+	print >> f1, 'run delayer' 
+	cmdkill += 'killall ' + fldelay + ' \n' 
+	time.sleep(1) 	
+	os.system( delayFile + ' &')
+
+cmdgrab = ''
+
+if (fftype == 'twitch' or fftype == 'youtube'):	
+	if (fftype == 'twitch'):
+		cmdgrab =  'livestreamer -a="" -p="ffmpeg -i -  -codec:a libfdk_aac -ar 44100  -c:v libx264 -f flv ' + ffdst + ' " -v ' + ffsrc + ' best &'
+	if (fftype == 'youtube'):
+		print >> f1, 'run youtubedl' 
+		ffpath = '~/ffmpeg_opt/ffmpeg-2.6.3/ffmpeg' 
+		youtubedl = 'YOUTUBE_DL_COMMAND="youtube-dl https://www.youtube.com/watch?v='+ffsrcid + ' ' + '--format=mp4 -g" \n'
+		echodl = 'echo $($YOUTUBE_DL_COMMAND) >> log.txt\n'
+		cmdgrab =   youtubedl + echodl+ 'eval ' +  ffpath + ' -i $($YOUTUBE_DL_COMMAND) -acodec libmp3lame  -c:v libx264 -ar 44100  -vf scale=640:480 -f flv ' + ffproxy  +' & \n'			
+	makesh (grabFile, part1, part2, part3, part4, cmdgrab, part5)	
+	time.sleep(1) 	
+	cmdkill += 'killall ' + flgrab + ' \n' 
+	os.system( grabFile + ' &')
+		
+cmdkill += 'killall ' + flconf	+ '\n'
+killsh (killFile, part1k, cmdkill ,part2k)	
+f1.close() 	
+
 sys.exit(1)
