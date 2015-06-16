@@ -156,6 +156,9 @@ if (fftype == 'twitch' or fftype == 'youtube'):
 		ffpath = '~/ffmpeg_opt/ffmpeg-2.6.3/ffmpeg' 
 		ffprobe = '~/ffmpeg_opt/ffmpeg-2.6.3/ffprobe '
 		
+		youtubedl = 'YOUTUBE_DL_COMMAND="youtube-dl https://www.youtube.com/watch?v='+ffsrcid + ' ' + '--format=mp4 -g" \n'				
+		echodl = 'echo $($YOUTUBE_DL_COMMAND) >> log.txt\n'
+		
 		if (beresized == True):
 			ytdl = ' '
 			yturl = './ytdl.sh  ' + ffsrcid
@@ -175,12 +178,11 @@ if (fftype == 'twitch' or fftype == 'youtube'):
 			
 			jinfo = json.loads (ffinfo);
 			inwidth = jinfo ['streams'] [0] ['width'] 
-			print >> f1, 'ffprobe w_in =' + str (inwidth )			
-		
-		youtubedl = 'YOUTUBE_DL_COMMAND="youtube-dl https://www.youtube.com/watch?v='+ffsrcid + ' ' + '--format=mp4 -g" \n'				
-		echodl = 'echo $($YOUTUBE_DL_COMMAND) >> log.txt\n'
-		cmdgrab =   youtubedl + echodl+  ffpath + ' -i $($YOUTUBE_DL_COMMAND) -acodec libmp3lame  -c:v libx264 -ar 44100  -vf scale=640:480 -f flv ' + ffproxy  +' & \n'	
-#		cmdgrab =   youtubedl + echodl+  ffpath + ' -i $($YOUTUBE_DL_COMMAND) -acodec libmp3lame  -c:v libx264 -ar 44100  -f flv ' + ffproxy  +' & \n'		
+			print >> f1, 'ffprobe w_in =' + str (inwidth )					
+			
+			cmdgrab =   youtubedl + echodl+  ffpath + ' -i $($YOUTUBE_DL_COMMAND) -acodec libmp3lame  -c:v libx264 -ar 44100  -f flv ' + ffproxy  +' & \n'	
+		else: 
+			cmdgrab =   youtubedl + echodl+  ffpath + ' -i $($YOUTUBE_DL_COMMAND) -acodec libmp3lame  -c:v libx264 -ar 44100  -vf scale=640:480 -f flv ' + ffproxy  +' & \n'		
 		
 	makesh (grabFile, part1, part2, part3, part4, cmdgrab, part5)	
 	time.sleep(1) 	
