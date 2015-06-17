@@ -145,21 +145,23 @@ ffinfo =''
 defwidth = 640
 inwidth = defwidth
 logowidth = 160 
-beresized = False
+beresized = True
 
-if (fftype == 'twitch' or fftype == 'youtube'):	
+if (fftype == 'twitch' or fftype=='livestream' or fftype=='dailymotion' or fftype == 'ustream' or fftype == 'youtube'):		
+	ffpath = '~/ffmpeg_opt/ffmpeg-2.6.3/ffmpeg ' 
+	ffprobe = '~/ffmpeg_opt/ffmpeg-2.6.3/ffprobe '
+	if (fftype == 'twitch' or fftype=='livestream' or fftype=='dailymotion' or fftype == 'ustream'):		
+		cmdgrab =  'livestreamer -a="" -p="ffmpeg -i -  -codec:a libfdk_aac -ar 44100  -c:v libx264 -filter:v scale=640:-1 -f flv ' + ffproxy + ' " -v ' + ffsrc +  ' "480p,720p,best"' + ' & '
 	ffsrc = ffproxy
-	if (fftype == 'twitch'):
-		cmdgrab =  'livestreamer -a="" -p="ffmpeg -i -  -codec:a libfdk_aac -ar 44100  -c:v libx264 -f flv ' + ffdst + ' " -v ' + ffsrc + ' best &'
-	if (fftype == 'youtube'):
-		print >> f1, 'run youtubedl' 
-		ffpath = '~/ffmpeg_opt/ffmpeg-2.6.3/ffmpeg' 
-		ffprobe = '~/ffmpeg_opt/ffmpeg-2.6.3/ffprobe '
+	print >> f1, 'grab: ' +  ffsrc + '\n' + cmdgrab
+	if (fftype == 'youtube'): 
+		ffsrc = ffproxy
+		print >> f1, 'run youtubedl' 		
 		
 		youtubedl = 'YOUTUBE_DL_COMMAND="youtube-dl https://www.youtube.com/watch?v='+ffsrcid + ' ' + '--format=mp4 -g" \n'				
 		echodl = 'echo $($YOUTUBE_DL_COMMAND) >> log.txt\n'
 		
-		if (beresized == True):
+		if (beresized == False):
 			ytdl = ' '
 			yturl = './ytdl.sh  ' + ffsrcid
 			f=os.popen(yturl)
@@ -182,9 +184,9 @@ if (fftype == 'twitch' or fftype == 'youtube'):
 			
 			cmdgrab =   youtubedl + echodl+  ffpath + ' -i $($YOUTUBE_DL_COMMAND) -acodec libmp3lame  -c:v libx264 -ar 44100  -f flv ' + ffproxy  +' & \n'	
 		else: 
-			cmdgrab =   youtubedl + echodl+  ffpath + ' -i $($YOUTUBE_DL_COMMAND) -acodec libmp3lame  -c:v libx264 -ar 44100  -vf scale=640:480 -f flv ' + ffproxy  +' & \n'		
+			cmdgrab =   youtubedl + echodl+  ffpath + ' -i $($YOUTUBE_DL_COMMAND) -acodec libmp3lame  -c:v libx264 -ar 44100 -vf scale=640:-1 -f flv ' + ffproxy  +' & \n'		
 		
-	makesh (grabFile, part1, part2, part3, part4, cmdgrab, part5)	
+	makesh (grabFile, part1g, part2g, part3g, part4g, cmdgrab, part5g)	
 	time.sleep(1) 	
 	cmdkill += 'killall ' + flgrab + ' \n' 
 	os.system( grabFile + ' &')
@@ -347,7 +349,7 @@ ffdelay_src = ffdst
 cmddly= dlypath + ' -f ' + ffdelay_src + ' -t ' + ffdelay_dst + ' -d ' + str (ffdelay) + ' &'
 
 if (ffdelay_dst != ''):	
-	makesh (delayFile, part1, part2, part3, part4, cmddly, part5)
+	makesh (delayFile, part1d, part2d, part3d, part4d, cmddly, part5d)
 	print >> f1, 'run delayer' 
 	cmdkill += 'killall ' + fldelay + ' \n' 
 	time.sleep(1) 	
