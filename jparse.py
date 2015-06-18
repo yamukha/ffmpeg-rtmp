@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import time
 import zmq
-import simplejson as json
+import json
 import os
 import subprocess
 import psutil
@@ -144,7 +144,7 @@ cmdgrab = ''
 ffinfo =''
 defwidth = 640
 inwidth = defwidth
-logowidth = 160 
+logowidth = 126 
 beresized = True
 
 if (fftype == 'twitch' or fftype=='livestream' or fftype=='dailymotion' or fftype == 'ustream' or fftype == 'youtube'):		
@@ -199,49 +199,6 @@ print logo_list
 filter_count = blur_count + logo_count
 print "filter_count = " + str(filter_count)
 
-if logo_count == 0 and blur_count > 0: 		
-#	TODO create filter graph	
-	print "blur no logo"
-	if blur_count == 1:
-# '[v0]crop=160:100:50:50,boxblur=3[fg0];[v0][fg0]overlay=50:90[fg]' -map '[fg]'	
-		blurxy0 = place (filter_list[0] [1], filter_list[0] [2])
-		cropxy0 = '[v0]crop=' + crop ( filter_list[0] [3], filter_list[0] [4] ,filter_list[0] [1] , filter_list[0] [2]) + ','		
-		blurlay0 = '[v0][fg0]overlay='
-		fblur0 = cropxy0 + 'boxblur=3[fg0];' + blurlay0 + blurxy0	
-		fffilter = fblur0 + '[' + fgout + ']'
-		fffg +=  ' '+ '\'' + fffilter +  '\'' + ffmap	
-	fflogo = ''
-	ffinlogo = ''
-	if blur_count == 2:				
-# [v0]crop=160:100:50:90,boxblur=3[fg0];[v0]crop=160:90:60:290,boxblur=5[fg1];[v0][fg0]overlay=50:50[vo1];[vo1][fg1]overlay=60:290[fg]				
-		blurxy0 = place (filter_list[0] [1], filter_list[0] [2])
-		blurxy1 = place (filter_list[1] [1], filter_list[1] [2])	
-		cropxy0 = '[v0]crop=' + crop ( filter_list[0] [3], filter_list[0] [4] ,filter_list[0] [1] , filter_list[0] [2]) + ','
-		cropxy1 = '[v0]crop=' + crop ( filter_list[1] [3], filter_list[1] [4] ,filter_list[1] [1] , filter_list[1] [2]) + ','		
-		fblur0 = cropxy0 + 'boxblur=3[fg0];'	
-		fblur1 = cropxy1 + 'boxblur=3[fg1];'
-		blurlay0 = '[v0][fg0]overlay='  + blurxy0 + '[vo1];'  		  		
-		blurlay1 = '[vo1][fg1]overlay=' + blurxy1 		  		
-		fffilter = fblur0 + fblur1 + blurlay0 + blurlay1 +'[' + fgout+ ']'
-		fffg +=  ' '+ '\'' + fffilter +  '\'' + ffmap
-	if blur_count > 2:
-# [v0]crop=160:100:50:90,boxblur=5[fg0];[v0]crop=160:90:60:290,boxblur=5[fg1];[v0]crop=160:90:60:190,boxblur=5[fg2];
-# [v0][fg0]overlay=50:50[vo1];[vo1][fg1]overlay=60:290[vo2];[vo2][fg2]overlay=60:190[fg]		
-		blurxy0 = place (filter_list[0] [1], filter_list[0] [2])
-		blurxy1 = place (filter_list[1] [1], filter_list[1] [2])	
-		blurxy2 = place (filter_list[2] [1], filter_list[2] [2])		
-		cropxy0 = '[v0]crop=' + crop ( filter_list[0] [3], filter_list[0] [4] ,filter_list[0] [1] , filter_list[0] [2]) + ','
-		cropxy1 = '[v0]crop=' + crop ( filter_list[1] [3], filter_list[1] [4] ,filter_list[1] [1] , filter_list[1] [2]) + ','
-		cropxy2 = '[v0]crop=' + crop ( filter_list[2] [3], filter_list[2] [4] ,filter_list[2] [1] , filter_list[2] [2]) + ','			
-		fblur0 = cropxy0 + 'boxblur=3[fg0];'	
-		fblur1 = cropxy1 + 'boxblur=3[fg1];'
-		fblur2 = cropxy2 + 'boxblur=3[fg2];'
-		blurlay0 = '[v0][fg0]overlay='  + blurxy0 + '[vo1];'  		  		
-		blurlay1 = '[vo1][fg1]overlay=' + blurxy1 + '[vo2];'  	
-		blurlay2 = '[vo2][fg2]overlay=' + blurxy2 		  		
-		fffilter = fblur0 + fblur1 + fblur2 + blurlay0 + blurlay1 + blurlay2 + '[' + fgout + ']'
-		fffg +=  ' '+ '\'' + fffilter +  '\'' + ffmap	
-	
 if logo_count == 0 and blur_count == 0: 	
 	print "no blur no logo"
 	fffg = ''	
@@ -257,59 +214,41 @@ if logo_count == 1 and blur_count == 0:
 #	fffilter =  '['+ 'v0' +'][1:v]overlay=' +  ffoverlogo  + ':' + str (posyl) +'[' + fgout + ']'
 	fffilter =  '[1:v] scale=' + str (lscaled ) + ':' + '-1'+'[lg];' + '['+ 'v0' +'][lg]overlay=' +  ffoverlogo  + ':' + str (posyl) +'[' + fgout + ']'
 	fffg +=  ' '+ '\'' + fffilter +  '\'' + ffmap
+
+# '[v0]crop=160:100:50:90,boxblur=5[fg0];[v0]crop=160:90:60:290,boxblur=5[fg1];[v0]crop=160:90:60:190,boxblur=5[fg2];
+# [v0][fg0]overlay=50:50[vo1];[vo1][fg1]overlay=60:290[vo2];[vo2][fg2]overlay=60:190[fg]'
+if logo_count == 0 and blur_count > 0: 		
+	print "blur no logo"
+	fflogo = ''
+	ffinlogo = ''	
+	cropped = ''
+	for idx in  range(0, blur_count):
+		cropped += '[v0]crop=' + crop (filter_list[idx] [3], filter_list[idx] [4] ,filter_list[idx] [1] , filter_list[idx] [2]) + ',boxblur=' + '3' + '[fg' + str(idx) +'];'
+	overlayed = ''	
+	for idx in  range(0, blur_count):	
+		overlayed += '[v'+ str (idx) +']' + '[fg'+ str(idx)+ ']' + 'overlay=' +  place (filter_list[idx] [1], filter_list[idx] [2]) +'[v'+ str (idx +1) +'];'
+			
+	logolay = overlayed.replace('[v'+str (blur_count)+'];', '['+fgout+']')
+	fffilter = cropped + logolay		
+	fffg +=  ' '+ '\'' + fffilter +  '\'' + ffmap			
 	
+#'[v0]crop=160:90:50:20,boxblur=3[fg0];[v0]crop=160:90:60:240,boxblur=3[fg1];[v0]crop=160:90:60:130,boxblur=3[fg2];
+# [v0][fg0]overlay=50:20[v1];[v1][fg1]overlay=60:240[v2];[v2][fg2]overlay=60:130[v3];[1:v] scale=160:-1[lg];[v3][lg]overlay= main_w-overlay_w-10:0[fg]'	
 if logo_count == 1 and blur_count > 0: 
-#	TODO create filter graph		
 	print "logo and blur"
 	posxl = logo_list[0] [1]
 	posyl = logo_list[0] [2]
-	if blur_count == 1:
-# '[v0]crop=160:100:50:50,boxblur=3[fg0];[v0][fg0]overlay=50:90[vo2];[vo2][1:v]overlay=50:90[fg]' -map '[fg]'	
-		blurxy0 = place (filter_list[0] [1], filter_list[0] [2])
-		cropxy0 = '[v0]crop=' + crop ( filter_list[0] [3], filter_list[0] [4] ,filter_list[0] [1] , filter_list[0] [2]) + ','
-		lout0 = 'vo2'
-#		logolay = '[' + lout0 + '][1:v]overlay=' + place (posxl, posyl) + '[' + fgout + ']'
-		logolay = '[1:v] scale=' + str (lscaled ) + ':' + '-1'+'[lg];' + '['+ lout0 +'][lg]overlay=' +  ffoverlogo  + ':' + str (posyl) +'[' + fgout + ']'
-		blurlay0 = '[v0][fg0]overlay='
-		fblur0 = cropxy0 + 'boxblur=3[fg0];' + blurlay0 + blurxy0	
-		fffilter = fblur0 + '[' + lout0 + '];' + logolay
-		fffg +=  ' '+ '\'' + fffilter +  '\'' + ffmap
-	if blur_count == 2:
-# [v0]crop=160:100:50:90,boxblur=3[fg0];[v0]crop=160:90:60:290,boxblur=3[fg1];[v0][fg0]overlay=50:90[vo1];[vo1][fg1]overlay=60:290[vo2];[vo2][1:v]overlay=50:90[fg]'		
-		blurxy0 = place (filter_list[0] [1], filter_list[0] [2])
-		blurxy1 = place (filter_list[1] [1], filter_list[1] [2])	
-		cropxy0 = '[v0]crop=' + crop ( filter_list[0] [3], filter_list[0] [4] ,filter_list[0] [1] , filter_list[0] [2]) + ','
-		cropxy1 = '[v0]crop=' + crop ( filter_list[1] [3], filter_list[1] [4] ,filter_list[1] [1] , filter_list[1] [2]) + ','		
-		lout0 = 'vo2'
-#		logolay = '[' + lout0 + '][1:v]overlay=' +   place (posxl, posyl) + '[' + fgout + ']'
-		logolay =  '[1:v] scale=' + str (lscaled ) + ':' + '-1'+'[lg];' + '['+ lout0 +'][lg]overlay=' +  ffoverlogo  + ':' + str (posyl) +'[' + fgout + ']'
-		fblur0 = cropxy0 + 'boxblur=3[fg0];'	
-		fblur1 = cropxy1 + 'boxblur=3[fg1];'
-		blurlay0 = '[v0][fg0]overlay='  + blurxy0 + '[vo1];'  		  		
-		blurlay1 = '[vo1][fg1]overlay=' + blurxy1 		  		
-		fffilter = fblur0 + fblur1 + blurlay0 + blurlay1 +'[' + lout0 + '];' + logolay
-		fffg +=  ' '+ '\'' + fffilter +  '\'' + ffmap
-	if blur_count > 2:
-# [v0]crop=160:100:50:90,boxblur=3[fg0];[v0]crop=160:90:60:290,boxblur=3[fg1];[v0]crop=160:90:60:190,boxblur=3[fg2];
-# [v0][fg0]overlay=50:90[vo1];[vo1][fg1]overlay=60:290[vo2];[vo2][fg2]overlay=60:190[vo3];[vo3][1:v]overlay=50:90[fg] 		
-		blurxy0 = place (filter_list[0] [1], filter_list[0] [2])
-		blurxy1 = place (filter_list[1] [1], filter_list[1] [2])	
-		blurxy2 = place (filter_list[2] [1], filter_list[2] [2])		
-		cropxy0 = '[v0]crop=' + crop ( filter_list[0] [3], filter_list[0] [4] ,filter_list[0] [1] , filter_list[0] [2]) + ','
-		cropxy1 = '[v0]crop=' + crop ( filter_list[1] [3], filter_list[1] [4] ,filter_list[1] [1] , filter_list[1] [2]) + ','
-		cropxy2 = '[v0]crop=' + crop ( filter_list[2] [3], filter_list[2] [4] ,filter_list[2] [1] , filter_list[2] [2]) + ','
-		lout0 = 'vo3'
-#		logolay = '[' + lout0 + '][1:v]overlay=' +  place (posxl, posyl) + '[' + fgout + ']'
-		logolay =  '[1:v] scale=' + str (lscaled ) + ':' + '-1'+'[lg];' + '['+ lout0 +'][lg]overlay=' +  ffoverlogo  + ':' + str (posyl) +'[' + fgout + ']'	
-		fblur0 = cropxy0 + 'boxblur=3[fg0];'	
-		fblur1 = cropxy1 + 'boxblur=3[fg1];'
-		fblur2 = cropxy2 + 'boxblur=3[fg2];'
-		blurlay0 = '[v0][fg0]overlay='  + blurxy0 + '[vo1];'  		  		
-		blurlay1 = '[vo1][fg1]overlay=' + blurxy1 + '[vo2];'  	
-		blurlay2 = '[vo2][fg2]overlay=' + blurxy2 		  		
-		fffilter = fblur0 + fblur1 + fblur2 + blurlay0 + blurlay1 + blurlay2 + '[' + lout0 + '];' + logolay
-		fffg +=  ' '+ '\'' + fffilter +  '\'' + ffmap	
-
+	cropped = ''
+	for idx in  range(0, blur_count):
+		cropped += '[v0]crop=' + crop (filter_list[idx] [3], filter_list[idx] [4] ,filter_list[idx] [1] , filter_list[idx] [2]) + ',boxblur=' + '3' + '[fg' + str(idx) +'];'
+	overlayed = ''	
+	for idx in  range(0, blur_count):	
+		overlayed += '[v'+ str (idx) +']' + '[fg'+ str(idx)+ ']' + 'overlay=' +  place (filter_list[idx] [1], filter_list[idx] [2]) +'[v'+ str (idx +1) +'];'
+	lout0 = 'v'+str (blur_count)	
+	logolay =  '[1:v] scale=' + str (lscaled ) + ':' + '-1'+'[lg];' + '['+ lout0 +'][lg]overlay=' +  ffoverlogo  + ':' + str (posyl) +'[' + fgout + ']'	
+	fffilter = cropped + overlayed + 	logolay		
+	fffg +=  ' '+ '\'' + fffilter +  '\'' + ffmap	
+		
 fflist = [ffapk, ffin, ffsrc, ffinlogo, fflogo, fffg, ffac, ffvc, ffout, fffmt, ffdst ];
 
 print fffg 
