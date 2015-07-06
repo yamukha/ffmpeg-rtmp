@@ -4,6 +4,24 @@ import time
 import os
 import subprocess
 import sys
+import socket
+import netifaces
+
+def _getownip():
+	s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+	s.connect(("gmail.com",80))
+	ownip = s.getsockname()[0]
+	s.close()	
+	return ownip
+	
+def _getif(ownaddr):
+	iface = "eth0"
+	iflist = netifaces.interfaces()
+	for ifitem in iflist: 
+		ifresult = str( netifaces.ifaddresses(ifitem))
+		if ownaddr in ifresult: 			
+			iface = ifitem
+	return iface
 
 fname = './tshark.txt'
 content = ''
@@ -20,8 +38,11 @@ swfFlags = ' swfVfy=true live=true '
 #sudo timeout 15 ngrep -d em1 -W byline | grep -v -E playing\|display\|player\|playVideo\|_airplay | grep -E swfUrl\|tcUrl\|play
 #sudo timeout 15 tcpdump -A -s 0 -n -i em1 -c 5000 | grep -E tcUrl > tcpdump.txt
 
+ownaddr = _getownip()
+iface = _getif(ownaddr)
+
 tstime = 10 
-grepcmd = "sudo tshark -i em1 -f 'ip src 10.1.4.168' -Y 'rtmpt and (frame contains \"swfUrl\" or frame contains \"play\")' -T fields -e tcp.dstport -T fields -e ip.dst -T fields -e col.Info -a duration:" + str(tstime) + " > tshark.txt &"
+grepcmd = "sudo tshark -i " + iface + " -f " + " 'ip src " +  ownaddr + "' -Y 'rtmpt and (frame contains \"swfUrl\" or frame contains \"play\")' -T fields -e tcp.dstport -T fields -e ip.dst -T fields -e col.Info -a duration:" + str(tstime) + " > tshark.txt &"
 p = subprocess.Popen(grepcmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 time.sleep(tstime + 1) 
 p.stdout.close()
